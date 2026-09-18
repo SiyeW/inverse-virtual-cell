@@ -67,7 +67,7 @@ Candidate perturbations
 
 ### 1. Perturb-seq preprocessing
 
-The current prototype uses the public Adamson Perturb-seq dataset (GEO: **GSE90546**). The preprocessing script:
+The current prototype retains the public Adamson Perturb-seq dataset (GEO: **GSE90546**) as its reproducible baseline. The Adamson-specific preprocessing script:
 
 - reconstructs the Adamson single-cell count matrices and perturbation annotations;
 - retains cells marked as `good coverage`;
@@ -75,6 +75,8 @@ The current prototype uses the public Adamson Perturb-seq dataset (GEO: **GSE905
 - performs library-size normalization and log transformation for feature selection;
 - selects highly variable genes while retaining perturbation target genes; and
 - restricts perturbation targets to genes represented in the supplied GenePT embedding table.
+
+For any existing AnnData (`.h5ad`) source, use `scripts/preprocess_h5ad.py` instead. It requires an explicit perturbation-target column and control labels, preserves unnormalized integer counts in `adata.layers["counts"]`, optionally keeps RNA features only, and produces the standardized H5AD input required by the downstream scripts. It does not infer target genes from guide IDs; resolve guide-to-target mappings before invocation.
 
 ### 2. Perturbation-specific representation learning
 
@@ -158,6 +160,7 @@ inverse-virtual-cell/
 | Script | Purpose |
 | --- | --- |
 | `scripts/preprocess_adamson.py` | Prepare the Adamson Perturb-seq data and apply canonical QC / feature selection. |
+| `scripts/preprocess_h5ad.py` | Validate and prepare a generic Perturb-seq H5AD for contrastiveVI input. |
 | `scripts/train_contrastivevi.py` | Learn perturbation-associated salient representations with contrastiveVI. |
 | `scripts/inverse_retrieval.py` | Map salient states to GenePT space and rank candidate perturbations. |
 | `tests/test_smoke.py` | Dependency-light smoke tests for core Python logic using toy data. |
@@ -231,6 +234,24 @@ python scripts/inverse_retrieval.py \
 ```
 
 By default, the inverse model is evaluated across 20 repeated perturbation-level splits.
+
+### Generic H5AD input
+
+For a processed Perturb-seq H5AD whose `adata.obs["target_gene"]` already holds
+resolved target genes and whose `adata.X` holds raw integer RNA counts:
+
+```bash
+python scripts/preprocess_h5ad.py \
+  --input data/raw/kolf/KOLF_Strong_Perturbations.h5ad \
+  --output data/processed/kolf_prepared.h5ad \
+  --perturbation-key target_gene \
+  --control-value NTC
+```
+
+The actual KOLF field names and control labels must be inspected before this
+command is run. For a 10x laboratory input, first construct an H5AD from the
+filtered RNA matrix, per-cell guide calls, and authoritative guide reference;
+then pass the resolved target-gene column to this script.
 
 ## Smoke Test
 
