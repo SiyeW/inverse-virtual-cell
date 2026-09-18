@@ -78,6 +78,14 @@ The current prototype retains the public Adamson Perturb-seq dataset (GEO: **GSE
 
 For any existing AnnData (`.h5ad`) source, use `scripts/preprocess_h5ad.py` instead. It requires an explicit perturbation-target column and control labels, preserves unnormalized integer counts in `adata.layers["counts"]`, optionally keeps RNA features only, and produces the standardized H5AD input required by the downstream scripts. It does not infer target genes from guide IDs; resolve guide-to-target mappings before invocation.
 
+For a laboratory 10x CRISPR Guide Capture result that still consists of a filtered
+feature-barcode matrix, `protospacer_calls_per_cell.csv`, and
+`feature_reference.csv`, first use `scripts/prepare_10x_guide_capture.py`. It
+retains RNA features and singleton-guide cells only, maps guides exactly through
+the supplied reference, labels its documented non-targeting target as `ctrl`, and
+writes a raw-count labeled H5AD. Run `preprocess_h5ad.py` on that output as the
+separate QC/normalization/HVG step.
+
 ### 2. Perturbation-specific representation learning
 
 The representation stage uses **contrastiveVI** to distinguish variation shared between control and perturbed cells from variation enriched in perturbed cells.
@@ -161,6 +169,7 @@ inverse-virtual-cell/
 | --- | --- |
 | `scripts/preprocess_adamson.py` | Prepare the Adamson Perturb-seq data and apply canonical QC / feature selection. |
 | `scripts/preprocess_h5ad.py` | Validate and prepare a generic Perturb-seq H5AD for contrastiveVI input. |
+| `scripts/prepare_10x_guide_capture.py` | Convert a 10x Guide Capture matrix plus authoritative guide calls/reference into a labeled raw-count H5AD. |
 | `scripts/train_contrastivevi.py` | Learn perturbation-associated salient representations with contrastiveVI. |
 | `scripts/inverse_retrieval.py` | Map salient states to GenePT space and rank candidate perturbations. |
 | `tests/test_smoke.py` | Dependency-light smoke tests for core Python logic using toy data. |
