@@ -1,0 +1,12 @@
+{
+  "matrix_h5": "path/to/filtered_feature_bc_matrix.h5",
+  "protospacer_calls": "path/to/protospacer_calls_per_cell.csv",
+  "feature_reference": "path/to/feature_reference.csv",
+  "metrics_summary": "path/to/metrics_summary.csv",
+  "input_hashes_json": "path/to/verified_input_hashes.json",
+  "output_root": "path/to/external/result_directory",
+  "chip_id": "chip01",
+  "control_target": "Non-Targeting",
+  "count_mad_multiplier": 5,
+  "mitochondrial_floor_pct": 8
+}

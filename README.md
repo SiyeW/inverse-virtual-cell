@@ -27,7 +27,30 @@ The long-term goal is to infer upstream genetic interventions that may move a ce
 
 
 
-## Motivation
+## Guide Capture coverage and cell QC
+
+The separate CPU-only workflow in
+[`notebooks/01_lab_chip01_analysis.ipynb`](notebooks/01_lab_chip01_analysis.ipynb)
+starts from a complete 10x filtered feature-barcode HDF5 matrix, per-cell guide
+calls, and the guide reference. It retains the full cell denominator, reports
+single-guide and multi-guide coverage, and exports sparse raw-count H5AD files
+with recorded stage-one QC flags. Doublet assessment and perturbation-effect
+analysis are subsequent steps, not claims made by this workflow.
+
+Install `requirements-analysis.txt`, copy
+[`configs/guide_capture_qc.example.json`](configs/guide_capture_qc.example.json)
+outside the repository, and fill in hash-verified input paths and an external
+result directory. Then run:
+
+```bash
+python scripts/run_analysis_notebook.py --config /path/to/local-analysis.json
+```
+
+The executed notebook, tables, figures, H5AD checksums, and code-version record
+are saved under that result directory. The versioned notebook remains
+output-free; private data and operational configuration stay outside Git.
+
+## Modeling motivation
 
 Forward perturbation models ask what cellular state will follow a known intervention. In many biological design settings, the complementary question is more directly actionable: given a cellular state of interest, which perturbation may be associated with that state?
 
