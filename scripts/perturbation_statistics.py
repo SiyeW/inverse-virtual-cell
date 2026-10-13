@@ -56,10 +56,18 @@ def differential_expression_block(x, control, min_cells=10, pseudocount=1.0):
     if (x < 0).any() or (control < 0).any() or pseudocount <= 0:
         raise ValueError('Expected nonnegative normalized counts and positive pseudocount')
     statistic, p = mannwhitneyu(x, control, axis=0, alternative='two-sided', method='asymptotic')
+    # A feature constant in both groups carries no contrast information.
+    # Some SciPy versions emit NaN for its zero tie-corrected variance.
+    constant = (np.maximum(x.max(0), control.max(0)) ==
+                np.minimum(x.min(0), control.min(0)))
+    statistic, p = np.asarray(statistic).copy(), np.asarray(p).copy()
+    statistic[constant], p[constant] = len(x) * len(control) / 2, 1.0
+    if not np.isfinite(p).all() or not np.isfinite(statistic).all():
+        raise ValueError('Nonfinite test result for a nonconstant feature')
     mean_x, mean_control = x.mean(0), control.mean(0)
     return {'pvalue': p, 'rank_biserial': 2 * statistic / (len(x) * len(control)) - 1,
             'mean_normalized': mean_x, 'control_mean_normalized': mean_control,
-            'log2_fold_change_pseudocount1': np.log2((mean_x + pseudocount) / (mean_control + pseudocount)),
+            'log2_fold_change': np.log2((mean_x + pseudocount) / (mean_control + pseudocount)),
             'fraction_detected': (x > 0).mean(0), 'control_fraction_detected': (control > 0).mean(0)}
 
 

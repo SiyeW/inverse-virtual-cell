@@ -38,8 +38,10 @@ def test_de_block_ties_effects_and_global_bh():
     assert r['pvalue'][0] == 1
     assert r['rank_biserial'][0] == 0
     assert r['rank_biserial'][1] == 1
-    assert r['log2_fold_change_pseudocount1'][1] == 2
-    np.testing.assert_allclose(r['pvalue'], [mannwhitneyu(x[:,i],y[:,i],method='asymptotic').pvalue for i in range(3)])
+    assert r['log2_fold_change'][1] == 2
+    np.testing.assert_allclose(r['pvalue'][1:], [mannwhitneyu(x[:,i],y[:,i],method='asymptotic').pvalue for i in [1,2]])
+    constant = differential_expression_block(np.ones((20,1))*2,np.ones((30,1))*2)
+    assert constant['pvalue'][0] == 1 and constant['rank_biserial'][0] == 0
     np.testing.assert_allclose(bh_adjust([.01,.04,.02]), [.03,.04,.03])
     with pytest.raises(ValueError):
         differential_expression_block(x[:5], y)
