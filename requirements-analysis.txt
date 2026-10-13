@@ -3,3 +3,4 @@ nbformat
 nbclient
 ipykernel
 psutil
+scikit-image>=0.25,<0.27
