@@ -30,13 +30,13 @@ def residualize(y, covariates):
     return y-design@coefficients,int(rank)
 
 
-def screen(values, guides):
+def screen(values, guides, draws=1000):
     records=[]
     for i,guide in enumerate(sorted(set(guides))):
         mask=guides==guide
         row={'guide':guide,'cells':int(mask.sum())}
         if mask.sum()>=20:
-            row['centroid_distance'],row['label_permutation_p']=centroid_null_test(values[mask],values[~mask],seed=i)
+            row['centroid_distance'],row['label_permutation_p']=centroid_null_test(values[mask],values[~mask],draws=draws,seed=i)
         records.append(row)
     result=pd.DataFrame(records).set_index('guide')
     tested=result.label_permutation_p.notna()
@@ -44,7 +44,9 @@ def screen(values, guides):
     return result
 
 
-def run(root, output):
+def run(root, output, draws=1000):
+    if draws<1000:
+        raise ValueError('Control review requires at least 1000 permutations')
     if output.exists():
         raise FileExistsError('Preserve existing review')
     output.mkdir(parents=True)
@@ -73,12 +75,13 @@ def run(root, output):
         atomic_json(state_path,{'stage':'quality_association_sensitivity','control_cells':len(obs)})
         with threadpool_limits(limits=1):
             residual,rank=residualize(pc,covariates)
-            adjusted=screen(residual,guides).add_prefix('qc_adjusted_')
+            adjusted=screen(residual,guides,draws).add_prefix('qc_adjusted_')
             threshold=float(obs.doublet_score.quantile(.99))
             keep=obs.doublet_score.to_numpy()<=threshold
-            trimmed=screen(pc[keep],guides[keep]).add_prefix('highscore_tail_excluded_')
+            trimmed=screen(pc[keep],guides[keep],draws).add_prefix('highscore_tail_excluded_')
+            retested=screen(pc,guides,draws).add_prefix('baseline_retested_')
         table=pd.read_csv(original/'ntc_guide_consistency.csv').set_index('guide')
-        table=table.join(adjusted).join(trimmed)
+        table=table.join(adjusted).join(trimmed).join(retested)
         grouped=obs.groupby('guide_id',observed=True)
         table['median_doublet_score']=grouped.doublet_score.median()
         table['tail_sensitivity_cells_removed']=table.cells-table.highscore_tail_excluded_cells
@@ -86,7 +89,9 @@ def run(root, output):
         flagged=table.bh_q<.05
         summary={'stage':'complete_diagnostics_only','elapsed_seconds':time.monotonic()-started,
                  'code_commit':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
-                 'control_cells':len(obs),'original_flagged_guides':int(flagged.sum()),
+                 'control_cells':len(obs),'permutations':draws,
+                 'original_flagged_guides':int(flagged.sum()),
+                 'baseline_retested_flagged_guides':int((table.baseline_retested_bh_q<.05).sum()),
                  'qc_adjusted_flagged_guides':int((table.qc_adjusted_bh_q<.05).sum()),
                  'tail_excluded_flagged_guides':int((table.highscore_tail_excluded_bh_q<.05).sum()),
                  'original_flags_persist_after_both':int((flagged & (table.qc_adjusted_bh_q<.05) & (table.highscore_tail_excluded_bh_q<.05)).sum()),
@@ -105,5 +110,6 @@ if __name__=='__main__':
     p=argparse.ArgumentParser()
     p.add_argument('--root',type=Path,required=True)
     p.add_argument('--output',type=Path,required=True)
+    p.add_argument('--permutations',type=int,default=1000)
     a=p.parse_args()
-    run(a.root,a.output)
+    run(a.root,a.output,a.permutations)
