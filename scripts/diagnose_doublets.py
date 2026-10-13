@@ -18,7 +18,7 @@ from threadpoolctl import threadpool_limits
 from analyze_expression_structure import atomic_json, blocks, sha256
 
 
-def run(source, checkpoint_dir, output, limit=0):
+def run(source, checkpoint_dir, output, limit=0, mean_center=False, sim_ratio=1.0):
     output.mkdir(parents=True, exist_ok=True)
     status = output / 'status.json'
     if status.exists():
@@ -40,7 +40,8 @@ def run(source, checkpoint_dir, output, limit=0):
         columns = np.asarray(checkpoint['feature_indices'], dtype=int)
         if limit:
             rows = np.sort(np.random.default_rng(0).choice(rows, min(limit, len(rows)), replace=False))
-        if psutil.virtual_memory().available < (700 if limit else 1400) * 1024**2:
+        required_mib = 700 if limit else (2000 if mean_center else 1400)
+        if psutil.virtual_memory().available < required_mib * 1024**2:
             raise MemoryError('Insufficient free memory for diagnostic Scrublet')
         a = ad.read_h5ad(source, backed='r')
         obs, var = a.obs.iloc[rows].copy(), a.var.iloc[columns].copy()
@@ -56,11 +57,11 @@ def run(source, checkpoint_dir, output, limit=0):
         data = ad.AnnData(counts, obs=obs, var=var)
         import scanpy as sc
         state('scrublet', cells=len(rows), features=len(columns))
-        # Sparse uncentered embedding + 1:1 simulation bound memory; do not
-        # describe these as the default or the experimental doublet rate.
+        # The uncentered 1:1 option bounds memory; centered 2:1 sensitivity
+        # uses Scrublet's default embedding/simulation choices, when safe.
         with config_context(working_memory=64), threadpool_limits(limits=1):
-            sc.pp.scrublet(data, expected_doublet_rate=0.05, sim_doublet_ratio=1,
-                          mean_center=False, n_prin_comps=30,
+            sc.pp.scrublet(data, expected_doublet_rate=0.05, sim_doublet_ratio=sim_ratio,
+                          mean_center=mean_center, n_prin_comps=30,
                           use_approx_neighbors=False, random_state=0)
         data.obs.to_csv(output / 'cell_doublet_diagnostics.csv.gz')
         result = data.uns['scrublet']
@@ -87,7 +88,7 @@ def run(source, checkpoint_dir, output, limit=0):
               cells=len(rows), input_sha256=checkpoint['input_sha256'],
               code_commit=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
               expected_rate_assumption=0.05, experimental_rate='unverified',
-              sim_doublet_ratio=1, mean_center=False, neighbors='exact; working_memory64MiB',
+              sim_doublet_ratio=sim_ratio, mean_center=mean_center, neighbors='exact; working_memory64MiB',
               candidate_threshold=float(threshold) if threshold is not None else None,
               candidate_calls=int(data.obs['predicted_doublet'].sum()) if threshold is not None else None,
               filtering_applied=False, source_counts_modified=False,
@@ -106,5 +107,7 @@ if __name__ == '__main__':
     p.add_argument('--checkpoint-dir',type=Path,required=True)
     p.add_argument('--output',type=Path,required=True)
     p.add_argument('--limit',type=int,default=0)
+    p.add_argument('--mean-center',action='store_true')
+    p.add_argument('--sim-ratio',type=float,default=1.0)
     args = p.parse_args()
-    run(args.source,args.checkpoint_dir,args.output,args.limit)
+    run(args.source,args.checkpoint_dir,args.output,args.limit,args.mean_center,args.sim_ratio)
