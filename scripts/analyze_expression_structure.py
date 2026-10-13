@@ -155,6 +155,13 @@ def run(source, output, hvg_count=1500):
                 parts.append(normalized_log(x, total[picked])[:, selected])
         x = sparse.vstack(parts, format='csr')
         del parts
+        sparse.save_npz(output / 'diagnostic_log_hvg.npz', x)
+        atomic_json(output / 'pca_checkpoint.json', {
+            'input_sha256': identity, 'cell_indices': rows.tolist(),
+            'feature_indices': selected.tolist(),
+            'matrix_sha256': sha256(output / 'diagnostic_log_hvg.npz'),
+            'shape': list(x.shape), 'nnz': x.nnz,
+            'meaning': 'diagnostic logCP10k only; not raw counts or final QC'})
         required = 256 * 1024 ** 2 + x.data.nbytes * 4
         if psutil.virtual_memory().available < required:
             raise MemoryError(f'PCA preflight needs {required} free bytes')
