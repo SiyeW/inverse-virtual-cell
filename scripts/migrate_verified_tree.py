@@ -235,7 +235,10 @@ def run(config_path, control):
                         save()
                 status('copy',group=group['name'])
                 with (control/(group['name']+'.rsync.log')).open('ab') as log:
-                    subprocess.run(['rsync','-rt','--partial','--append-verify','--info=progress2',
+                    # Some CIFS mounts permit data writes but reject utime.
+                    # Preserve original timestamps in the journal, not via -t;
+                    # size-only is a copy optimization, never verification.
+                    subprocess.run(['rsync','-r','--size-only','--partial','--append-verify','--info=progress2',
                                     str(source)+'/',str(target)+'/'],stdout=log,stderr=subprocess.STDOUT,check=True)
                 for rel in group['files']:
                     cached=group['verified'].get(rel)
