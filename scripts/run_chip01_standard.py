@@ -61,6 +61,16 @@ def save_manifest(folder):
     atomic_json(folder/'output_manifest.json',manifest)
 
 
+def portable_obs(frame):
+    """Explicit object index/category values for pre-0.11-compatible H5AD IO."""
+    frame=frame.copy()
+    frame.index=pd.Index(np.asarray(frame.index,dtype=object),dtype=object,name=frame.index.name)
+    for column in frame:
+        if isinstance(frame[column].dtype,pd.StringDtype):
+            frame[column]=pd.Categorical(frame[column].astype(object))
+    return frame
+
+
 def prepare(source,output,flagged_controls,diagnostics,state,seed):
     import scanpy as sc
     state('verify_input')
@@ -129,11 +139,15 @@ def prepare(source,output,flagged_controls,diagnostics,state,seed):
         ax.set_title(key);ax.set_xlabel('UMAP1');ax.set_ylabel('UMAP2');fig.colorbar(points,ax=ax,shrink=.7)
     fig.savefig(output/'expression_umap.png',dpi=160);plt.close(fig)
     # Compact graph/embedding object: avoids another full duplicated expression matrix.
-    graph=ad.AnnData(sparse.csr_matrix((len(rows),0)),obs=struct.obs.copy())
+    graph=ad.AnnData(sparse.csr_matrix((len(rows),0)),obs=portable_obs(struct.obs))
     for key in ['X_pca','X_umap']:graph.obsm[key]=struct.obsm[key]
     graph.obsp['connectivities']=struct.obsp['connectivities'];graph.obsp['distances']=struct.obsp['distances']
     graph.uns['counts_source']=str(source);graph.uns['counts_source_sha256']=expected
     graph.write_h5ad(output/'cell_structure.h5ad',compression='gzip')
+    reopened=ad.read_h5ad(output/'cell_structure.h5ad')
+    if not np.array_equal(reopened.obs_names,selected_obs.index):raise ValueError('Saved cell order changed')
+    if not np.array_equal(reopened.obsm['X_umap'],graph.obsm['X_umap']):raise ValueError('Saved embedding changed')
+    del reopened
     del struct
     state('formal_energy_representation',cells=len(rows))
     control=selected_obs.is_control.to_numpy(dtype=bool)

@@ -6,7 +6,7 @@ import pytest
 from scipy import sparse
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
 from perturbation_statistics import energy_permutation, energy_permutation_batched
-from run_chip01_standard import main_mask, normalize_counts, energy_representation
+from run_chip01_standard import main_mask, normalize_counts, energy_representation, portable_obs
 
 
 def test_batched_energy_matches_original_same_permutations():
@@ -36,3 +36,17 @@ def test_normalization_and_energy_exclude_custom_features_and_preserve_counts():
     scores,indices,variance,_=energy_representation(counts,totals,var,np.arange(60)<30)
     assert scores.shape==(60,20) and max(indices)<38 and np.isfinite(scores).all()
     assert len(variance)==20 and (counts!=original).nnz==0
+
+
+def test_nullable_barcode_metadata_roundtrip(tmp_path):
+    import anndata as ad
+    frame=pd.DataFrame({'guide':pd.array(['g1',None,'g3'],dtype='string'),'flag':[True,False,True]})
+    frame.index=pd.Index(pd.array(['cell1','cell2','cell3'],dtype='string'),name='cell_barcode')
+    source=frame.copy(deep=True)
+    a=ad.AnnData(sparse.csr_matrix((3,0)),obs=portable_obs(frame))
+    a.obsm['X_umap']=np.arange(6,dtype=np.float32).reshape(3,2)
+    a.write_h5ad(tmp_path/'test.h5ad',compression='gzip')
+    b=ad.read_h5ad(tmp_path/'test.h5ad')
+    assert list(b.obs_names)==list(frame.index) and b.obs.guide.isna().tolist()==[False,True,False]
+    np.testing.assert_array_equal(a.obsm['X_umap'],b.obsm['X_umap'])
+    pd.testing.assert_frame_equal(frame,source)
