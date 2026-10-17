@@ -6,7 +6,16 @@ from scipy.stats import anderson_ksamp
 from scipy.spatial.distance import cdist
 sys.path.insert(0,str(Path(__file__).parents[1]/'scripts'))
 from replogle2022_statistics import (ad_statistics,ad_standard_deviation,energy_permutation_full_control,
-    _energy_subset_scores,strong_perturbation_mask,response_feature_union,paper_hdbscan)
+    _energy_subset_scores,strong_perturbation_mask,response_feature_union,paper_hdbscan,reference_de_domain)
+
+
+def test_reference_domain_excludes_undefined_z_before_bh_not_null_substitution():
+    p=np.array([1e-217,.01,.2,1e-112]);domain=np.array([False,True,True,False])
+    actual,q=reference_de_domain(p,domain)
+    assert np.isnan(actual[~domain]).all() and np.isnan(q[~domain]).all()
+    np.testing.assert_allclose(actual[domain],[.01,.2]);np.testing.assert_allclose(q[domain],[.02,.2])
+    with pytest.raises(ValueError):reference_de_domain(p,np.zeros(4,bool))
+    with pytest.raises(ValueError):reference_de_domain([np.nan,.2],[True,True])
 
 
 @pytest.mark.parametrize('sizes',[(1,30),(2,2),(3,7),(17,31),(20,400)])

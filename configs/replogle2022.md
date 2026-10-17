@@ -31,7 +31,9 @@ selection, HDBSCAN and functional interpretation in new output directories.
   10000 label permutations. Report raw Monte Carlo p and across-target BH q
   separately. Do not reuse the old <=256 control cap. Memory budget failure
   is an explicit failure, never silent resampling.
-- DE: test supplied RNA features, including genes not admitted to the PCA.
+- DE: test supplied RNA features with finite positive core-control SD, including
+  defined-z genes not admitted to the PCA. Store zero-control-SD features but
+  mark them untested with NaN p/q; they are outside the BH testing family.
   AD statistic uses SciPy-compatible midranks; tail calibration uses an
   externally pinned R kSamples `ad.pval(m=1,version=1)` grid. Off-grid reference
   relative error must be <=0.1%. MW uses two-sided asymptotic p for >=10 cells.
@@ -56,9 +58,13 @@ selection, HDBSCAN and functional interpretation in new output directories.
 - Singleton NTC guides are not eligible for pairwise core selection because
   a pair of singletons lacks the standardized-AD variance domain. Their
   source rows and exclusion reason remain recorded.
-- Positive affine z transformations preserve AD/MW ranks. DE therefore uses
-  UMI-normalized values, including zero-control-variance genes; only features
-  requiring a defined z score (energy/response profiles) exclude zero SD.
+- Positive affine z transformations preserve AD/MW ranks only for a finite
+  positive control SD. DE therefore uses UMI-normalized ranks on that defined
+  domain; zero-SD genes cannot bypass the reference z representation. The
+  first all-feature output remains as a superseded audit, not final DE.
+- Agreement with R's asymptotic tail curve establishes numerical equivalence,
+  not empirical null calibration for rare/tied genes or highly unbalanced
+  samples. Do not promote extreme sparse-gene p values to validated biology.
 - The paper's clustering-variance sentence lacks a normalization qualifier;
   raw-UMI variance is the explicit interpretation here, consistent with its
   UMI-mean criterion. This choice is not concealed as verified original code.

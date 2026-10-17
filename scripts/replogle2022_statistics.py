@@ -11,6 +11,19 @@ import numpy as np
 from numba import njit
 from scipy.cluster.hierarchy import leaves_list, linkage
 from scipy.spatial.distance import cdist, pdist
+from scipy.stats import false_discovery_control
+
+
+def reference_de_domain(pvalues, relative_z_defined):
+    """BH on the finite positive control-z domain; store others as untested."""
+    p=np.asarray(pvalues,dtype=float);mask=np.asarray(relative_z_defined,dtype=bool)
+    if p.ndim!=1 or mask.shape!=p.shape or not mask.any():
+        raise ValueError('Expected a nonempty defined control-z testing domain')
+    if not np.isfinite(p[mask]).all() or np.any((p[mask]<0)|(p[mask]>1)):
+        raise ValueError('Invalid p values in the actual testing domain')
+    retained=np.full(p.shape,np.nan);adjusted=np.full(p.shape,np.nan)
+    retained[mask]=p[mask];adjusted[mask]=false_discovery_control(p[mask])
+    return retained,adjusted
 
 
 @lru_cache(maxsize=1024)

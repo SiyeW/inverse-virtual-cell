@@ -11,7 +11,7 @@ from sklearn.decomposition import PCA
 from threadpoolctl import threadpool_limits
 from analyze_expression_structure import blocks,sha256,atomic_json
 from perturbation_statistics import bh_adjust,differential_expression_block
-from replogle2022_statistics import (ADCalibration,ad_statistics,energy_permutation_full_control,
+from replogle2022_statistics import (ADCalibration,ad_statistics,energy_permutation_full_control,reference_de_domain,
                                     strong_perturbation_mask,response_feature_union,paper_hdbscan)
 
 
@@ -184,16 +184,20 @@ def prepare_and_effects(args,config,state):
     summaries=[];top=[];summary_started=time.monotonic()
     control_fraction=np.asarray((ctrl>0).mean(0)).ravel()
     for i,target in enumerate(targets):
-        aq=bh_adjust(ad_p[i]);mq=bh_adjust(mw_p[i]);defined_ad=np.isfinite(ad_scores[i])
+        ad_p[i],aq=reference_de_domain(ad_p[i],defined)
+        if cells[i]>=config['de_mw_min_cells']:mw_p[i],mq=reference_de_domain(mw_p[i],defined)
+        else:mw_p[i]=np.nan;mq=np.full(genes,np.nan)
+        ad_scores[i,~defined]=-np.inf;defined_ad=np.isfinite(ad_scores[i])
         table=pd.DataFrame(dict(gene_id=var.index.astype(str),gene_name=names,
             ad_statistic=np.where(defined_ad,ad_scores[i],np.nan),ad_test_informative=defined_ad,
-            ad_pvalue=ad_p[i],ad_bh_q=aq,mw_tested=cells[i]>=config['de_mw_min_cells'],
+            de_gene_testable=defined,ad_tested=defined,
+            ad_pvalue=ad_p[i],ad_bh_q=aq,mw_tested=defined&(cells[i]>=config['de_mw_min_cells']),
             mw_pvalue=mw_p[i],mw_bh_q=mq,rank_biserial=rank_effect[i],
             mean_normalized=means[i],control_mean_normalized=center,
             log2_fold_change=np.log2((means[i]+1)/(center+1)),fraction_detected=fractions[i],
             control_fraction_detected=control_fraction,mean_response_z=response[i],response_z_defined=defined))
         file=f'target_{i:03d}_de.csv.gz';table.to_csv(args.output/file,index=False)
-        summaries.append(dict(target=target,file=file,cells=int(cells[i]),control_cells=n_control,tested_genes=genes,
+        summaries.append(dict(target=target,file=file,cells=int(cells[i]),control_cells=n_control,tested_genes=int(defined.sum()),
                               ad_de_genes=int((aq<config['gene_bh_q']).sum()),mw_tested=bool(cells[i]>=config['de_mw_min_cells']),
                               mw_de_genes=int((mq<config['gene_bh_q']).sum()) if cells[i]>=config['de_mw_min_cells'] else None,
                               low_coverage_for_clustering=bool(cells[i]<25)))
@@ -205,6 +209,7 @@ def prepare_and_effects(args,config,state):
     gene_statistics=var.copy();gene_statistics['raw_mean']=raw_mean;gene_statistics['raw_variance']=raw_variance
     gene_statistics['core_control_normalized_mean']=center;gene_statistics['core_control_normalized_sd']=scale
     gene_statistics['relative_z_defined']=defined
+    gene_statistics['de_gene_testable']=defined
     gene_statistics.to_csv(args.output/'gene_statistics.csv.gz')
     np.savez_compressed(args.output/'response_profiles.npz',targets=np.array(targets),values=response,
                         ad_statistics=ad_scores,raw_mean=raw_mean,raw_variance=raw_variance,z_defined=defined)
@@ -235,6 +240,7 @@ def prepare_and_effects(args,config,state):
     energy=pd.DataFrame(energies);energy['bh_q']=bh_adjust(energy.permutation_p.to_numpy())
     energy.to_csv(args.output/'energy_results.csv',index=False)
     identity.update(analysis_cells=len(obs),core_control_cells=n_control,targets=len(targets),rna_features=genes,
+                    tested_rna_features=int(defined.sum()),de_gene_domain='defined_core_control_relative_z',
                     energy_features=len(features),energy_control_cells=len(reference),
                     ad_targets_with_de=int(sum(r['ad_de_genes']>0 for r in summaries)),
                     energy_raw_p_lt_005=int((energy.permutation_p<.05).sum()),energy_bh_q_lt_005=int((energy.bh_q<.05).sum()),

@@ -118,7 +118,7 @@ def run(args):
             gene_expression_program_pyMDE_branch='not part of this perturbation-cluster deliverable',exact_cross_assay_replication=False)
         atomic_json(args.output/'methods_and_scope.json',methods)
         result=dict(analysis_cells=effects_summary['analysis_cells'],core_control_cells=effects_summary['core_control_cells'],
-            ad_targets=len(summary),mw_targets=int(summary.mw_tested.sum()),tested_rna_features=len(genes),
+            ad_targets=len(summary),mw_targets=int(summary.mw_tested.sum()),tested_rna_features=effects_summary.get('tested_rna_features',len(genes)),stored_rna_features=len(genes),
             strong_targets=int(eligible.sum()),clustering_features=len(features),hdbscan_groups=n_groups,
             strong_targets_unassigned=int((eligible&(labels<0)).sum()),fit_status=fit_status,
             energy_raw_p_lt_005=int((energy.permutation_p<.05).sum()),energy_bh_q_lt_005=int((energy.bh_q<.05).sum()),
@@ -142,6 +142,7 @@ def run(args):
             '- 复用本批QC阈值/可用chip批次元数据，不能称所有数值与K562原文相同；方差筛选采用原始UMI方差，是对原文未明确归一化限定的一项显式解释。',
             '- 原CORUM3.0端点不可用，本轮没有拿新版数据库替代；STRING11.5原版本来源/hash见methods_and_scope.json。未注释的组保留编号，不虚构名称。',
             '- 没有独立生物学重复，不把细胞当实验重复。2026发表全文尚未完整核实，本轮不称复现该文；未执行论文另一条基因表达程序/PyMDE支线。','',
+            '- 对照标准差为零的基因无法定义原文相对z，不进入本次DE检验或BH族；完整表保留这些RNA特征并标明未测试。极稀疏/强并列表达的渐近AD p值仍不能当作经实测校准的误报概率，R插值相符只验证参考数值一致。','',
             '## 图表和完整结果','',
             '- [核心对照筛选图](core_control_selection.png)',
             '- [整体效应概览](energy_overview.png)',
