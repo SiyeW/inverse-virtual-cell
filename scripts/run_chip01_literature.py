@@ -39,6 +39,20 @@ def validate_calibration(calibration,validation):
     return dict(reference_points=len(table),maximum_relative_error=float(error),calibration_validated=True)
 
 
+def validate_core_policy_identity(policy,original):
+    """Compare identities, not pandas string-storage implementation details."""
+    if policy.index.has_duplicates or original.index.has_duplicates or policy.index.isna().any() or original.index.isna().any():
+        raise ValueError('Nonunique/missing source barcode')
+    if not np.array_equal(policy.index.astype(str).to_numpy(),original.index.astype(str).to_numpy()):
+        raise ValueError('Core/source barcode values or order mismatch')
+    for column in ['source_row','total_counts','is_control']:
+        if not np.array_equal(policy[column].to_numpy(),original[column].to_numpy()):
+            raise ValueError('Core/source metadata mismatch: '+column)
+    for column in ['guide_id','perturbed_gene']:
+        if not np.array_equal(policy[column].astype(str).to_numpy(),original[column].astype(str).to_numpy()):
+            raise ValueError('Core/source assignment mismatch: '+column)
+
+
 def verify_stage(path):
     status=json.loads((path/'status.json').read_text())
     if status['stage']!='complete':raise ValueError('Dependent stage is not complete')
@@ -110,7 +124,7 @@ def prepare_and_effects(args,config,state):
     state('verify_and_read_sparse_source')
     counts,original,var,identity=read_input(args.source,args.input_sha256)
     policy=pd.read_csv(args.core/'cell_policy.csv.gz',index_col=0)
-    if not policy.index.equals(original.index) or not np.array_equal(policy.source_row,original.source_row):raise ValueError('Core/source cell order mismatch')
+    validate_core_policy_identity(policy,original)
     keep=policy.literature_analysis_cell.to_numpy(dtype=bool)
     obs=policy.loc[keep].copy();counts=counts[keep]
     controls=obs.core_control.to_numpy(dtype=bool);labels=obs.perturbed_gene.astype(str).to_numpy()

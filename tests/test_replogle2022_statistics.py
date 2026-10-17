@@ -62,3 +62,18 @@ def test_paper_hdbscan_and_no_fit_when_empty():
     assert status=='hdbscan_evaluated' and len(set(labels))==2 and -1 not in labels
     labels,order,status=paper_hdbscan(profile,np.zeros(10,bool),np.arange(4))
     assert status=='insufficient_eligible_profiles' and len(order)==0 and np.all(labels==-1)
+
+
+def test_core_csv_identity_ignores_storage_dtype_but_rejects_real_changes():
+    import pandas as pd
+    from run_chip01_literature import validate_core_policy_identity
+    original=pd.DataFrame(dict(source_row=[1,3],total_counts=[10,20],is_control=[True,False],
+                          guide_id=['NTC1','g1'],perturbed_gene=['ctrl','GENE1']),
+                          index=pd.Index(pd.array(['AA-1','BB-1'],dtype='string')))
+    policy=original.copy();policy.index=pd.Index(np.array(['AA-1','BB-1'],dtype=object),dtype=object)
+    validate_core_policy_identity(policy,original)
+    with pytest.raises(ValueError):validate_core_policy_identity(policy.iloc[::-1],original)
+    broken=policy.copy();broken.loc['BB-1','guide_id']='other'
+    with pytest.raises(ValueError):validate_core_policy_identity(broken,original)
+    broken=policy.copy();broken.loc['BB-1','total_counts']=21
+    with pytest.raises(ValueError):validate_core_policy_identity(broken,original)
