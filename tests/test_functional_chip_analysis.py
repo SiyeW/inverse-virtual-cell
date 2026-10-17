@@ -52,10 +52,10 @@ def test_functional_workflow_writes_auditable_report_and_preserves_inputs(tmp_pa
         fc=np.r_[np.ones(13),np.zeros(17)]+rng.normal(0,.001,30)
         pd.DataFrame({'bh_q':np.r_[np.ones(13)*.001,np.ones(17)],'log2_fold_change':fc,
           'ntc_sensitivity_bh_q':np.r_[np.ones(13)*.001,np.ones(17)],'ntc_sensitivity_log2_fold_change':fc},index=genes).to_csv(effects/filename)
-        rows.append(dict(target=target,file=filename,cells=30,exploratory_de_genes=13))
+        rows.append(dict(target=target,file=filename,cells=60,exploratory_de_genes=13))
         profiles.append(fc)
     pd.DataFrame(rows).to_csv(effects/'de_summary.csv',index=False)
-    pd.DataFrame({'target':targets,'cells':[30]*3,'energy_full':[1.,2.,3.],'bh_q':[.001]*3}).to_csv(effects/'energy_results.csv',index=False)
+    pd.DataFrame({'target':targets,'cells':[60]*3,'energy_full':[1.,2.,3.],'bh_q':[.001]*3,'ntc_sensitivity_bh_q':[.001]*3}).to_csv(effects/'energy_results.csv',index=False)
     np.savez_compressed(effects/'perturbation_expression_profiles.npz',targets=np.array(targets),values=np.array(profiles))
     (structure/'qc_policy.json').write_text(json.dumps(dict(main_cells=120,controls=30)))
     for folder in [effects,structure]:
@@ -72,3 +72,14 @@ def test_functional_workflow_writes_auditable_report_and_preserves_inputs(tmp_pa
     assert (output/'04_standard_analysis_report.md').exists()
     assert len(pd.read_csv(output/'pathway_enrichment_hits.csv.gz'))>0
     assert before=={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in effects.iterdir()}
+    from review_chip01_results import run as review
+    # The reviewer must describe positive fixture results rather than hard-code
+    # the negative outcome observed in the real first-chip analysis.
+    (tmp_path/'structure_v2').mkdir()
+    import shutil
+    for p in structure.iterdir():shutil.copy2(p,tmp_path/'structure_v2'/p.name)
+    (tmp_path/'functional_analysis').mkdir()
+    for p in output.iterdir():shutil.copy2(p,tmp_path/'functional_analysis'/p.name)
+    review(tmp_path,tmp_path/'review')
+    assert (tmp_path/'review/descriptive_response_similarity.png').exists()
+    assert '入口为空' not in (tmp_path/'review/05_interpretation.md').read_text(encoding='utf8')
