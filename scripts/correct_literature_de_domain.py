@@ -32,6 +32,8 @@ def run(args):
         for name in ['cell_policy.csv.gz','energy_representation.npz','energy_results.csv','energy_progress.csv','direct_target_masking.csv']:
             copies[name]=verified_copy(args.source_effects/name,args.output/name)
         parameters=json.loads((args.source_effects/'frozen_parameters.json').read_text())
+        reference_parameters=json.loads((Path(__file__).parents[1]/'configs/replogle2022.json').read_text())
+        for name in ['de_genes','ad_zero_scale_note','zero_control_variance']:parameters[name]=reference_parameters[name]
         parameters['de_gene_domain']='finite positive core-control SD; undefined relative-z genes stored but not tested'
         parameters['de_bh_family']='all and only defined control-z RNA genes per perturbation'
         atomic_json(args.output/'frozen_parameters.json',parameters)

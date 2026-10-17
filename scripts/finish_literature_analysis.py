@@ -149,9 +149,9 @@ def run(args):
             '- [扰动分组表](perturbation_groups.csv)',
             '- [分组数据库支持](string_cluster_support.csv)',
             '- [分组平均响应的高幅度基因](group_response_genes.csv)',
-            '- [完整DE索引](../effects/de_summary.csv)',
-            '- [AD候选基因摘要](../effects/top_ad_genes.csv.gz)',
-            '- [完整能量检验表](../effects/energy_results.csv)']
+            f'- [完整DE索引](../{args.effects.name}/de_summary.csv)',
+            f'- [AD候选基因摘要](../{args.effects.name}/top_ad_genes.csv.gz)',
+            f'- [完整能量检验表](../{args.effects.name}/energy_results.csv)']
         if (args.output/'strong_response_correlation.png').exists():lines.append('- [强扰动响应相关图](strong_response_correlation.png)')
         (args.output/'07_literature_redo_report.md').write_text('\n'.join(lines)+'\n',encoding='utf8')
         atomic_json(args.output/'output_manifest.json',{p.name:dict(bytes=p.stat().st_size,sha256=sha256(p)) for p in args.output.iterdir() if p.is_file() and p.name not in ['status.json','owner.lock','output_manifest.json']})
