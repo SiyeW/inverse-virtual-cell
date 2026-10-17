@@ -330,6 +330,20 @@ The preprocessing pipeline now explicitly applies the Adamson `good coverage` fi
 
 ## Roadmap
 
+### Diagnostic Scrublet workflow audit
+
+`scripts/audit_scrublet_workflow.py` starts from sparse raw RNA counts for
+cells marked `qc_pass_stage1`. It records native minimum filters and the
+single high-variability feature selection before simulating doublets. The
+prepared-input path is tested against Scanpy's native wrapper on the same
+counts. Run with `--source`, `--output`, `--expected-sha256`, and optionally
+`--limit` for a bounded smoke or `--seed` for simulation sensitivity.
+
+The output contains per-cell scores, selected features, simulated scores,
+automatic-cutoff diagnostics, package versions, and hashes. It does not
+exclude cells or establish a final analysis set. An automatic cutoff and a
+completed all-cell run are not evidence that residual doublets were removed.
+
 Planned research directions include:
 
 - strict end-to-end held-out perturbation evaluation;
