@@ -163,10 +163,13 @@ def paper_hdbscan(profiles,eligible,features):
     labels=np.full(len(profiles),-1,dtype=int)
     if len(indices)<4:return labels,indices,'insufficient_eligible_profiles'
     values=profiles[indices][:,features]
-    if values.shape[1]<2 or np.any(values.std(1)<=1e-12):return labels,indices,'undefined_profile_correlation'
+    if values.shape[1]<2:return labels,indices,'undefined_profile_correlation'
+    valid=np.ptp(values,axis=1)>0
+    excluded=int((~valid).sum());indices=indices[valid];values=values[valid]
+    if len(indices)<4:return labels,indices,'insufficient_defined_profiles'
     distances=pdist(values,metric='correlation')
     if not np.isfinite(distances).all():raise ValueError('Nonfinite profile distance')
     from scipy.spatial.distance import squareform
     labels[indices]=HDBSCAN(metric='precomputed',min_cluster_size=4,min_samples=1,cluster_selection_method='eom').fit_predict(squareform(np.clip(distances,0,2)))
     order=indices[leaves_list(linkage(np.clip(distances,0,2),method='average'))]
-    return labels,order,'hdbscan_evaluated'
+    return labels,order,'hdbscan_evaluated' if excluded==0 else 'hdbscan_evaluated_undefined_profiles_excluded'
