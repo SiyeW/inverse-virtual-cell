@@ -77,3 +77,10 @@ def test_core_csv_identity_ignores_storage_dtype_but_rejects_real_changes():
     with pytest.raises(ValueError):validate_core_policy_identity(broken,original)
     broken=policy.copy();broken.loc['BB-1','total_counts']=21
     with pytest.raises(ValueError):validate_core_policy_identity(broken,original)
+
+
+def test_categorical_gene_annotation_values_survive_missing_symbol_handling():
+    import pandas as pd
+    from run_chip01_literature import gene_symbols
+    var=pd.DataFrame({'gene_name':pd.Categorical(['GENE1',None,'PB.custom'])})
+    np.testing.assert_array_equal(gene_symbols(var),['GENE1','','PB.custom'])

@@ -53,6 +53,11 @@ def validate_core_policy_identity(policy,original):
             raise ValueError('Core/source assignment mismatch: '+column)
 
 
+def gene_symbols(var):
+    """Categorical gene annotations must leave category storage before fillna."""
+    return var.gene_name.astype('string').fillna('').to_numpy(dtype=str)
+
+
 def verify_stage(path):
     status=json.loads((path/'status.json').read_text())
     if status['stage']!='complete':raise ValueError('Dependent stage is not complete')
@@ -168,7 +173,7 @@ def prepare_and_effects(args,config,state):
               completed_genes=end,total_genes=genes,targets=len(targets),control_cells=n_control,
               elapsed_seconds=time.monotonic()-started,seconds_per_gene_block=(time.monotonic()-started)/(block+1))
     response[:,defined]=(means[:,defined]-center[defined])/scale[defined]
-    names=var.gene_name.fillna('').astype(str).to_numpy()
+    names=gene_symbols(var)
     direct_mask=[]
     for i,target in enumerate(targets):
         matched=np.flatnonzero(names==target)
