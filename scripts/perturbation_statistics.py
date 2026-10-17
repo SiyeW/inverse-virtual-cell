@@ -71,6 +71,31 @@ def differential_expression_block(x, control, min_cells=10, pseudocount=1.0):
             'fraction_detected': (x > 0).mean(0), 'control_fraction_detected': (control > 0).mean(0)}
 
 
+def energy_permutation_batched(x, y, permutations=9999, seed=0, batch_size=64):
+    """Same empirical V-statistic, batched weight products for bounded speed.
+
+    If w is 1/n for group X and -1/m for group Y, E = -w.T D w.
+    Sampling policy is external and must be recorded by the caller.
+    """
+    x, y = validate_pair(x, y)
+    if not isinstance(permutations, int) or permutations < 1 or batch_size < 1:
+        raise ValueError('Positive permutation and batch counts required')
+    n, total = len(x), len(x) + len(y)
+    if total > 1024:
+        raise MemoryError('Explicit sampling policy required for >1024 records')
+    d = cdist(np.vstack([x, y]), np.vstack([x, y]))
+    observed = energy_v_statistic(x, y)
+    rng, exceed = np.random.default_rng(seed), 0
+    for start in range(0, permutations, batch_size):
+        count = min(batch_size, permutations-start)
+        w = np.full((count,total), -1/len(y))
+        for row in w:
+            row[rng.permutation(total)[:n]] = 1/n
+        scores = np.maximum(0, -np.einsum('ij,ij->i', w @ d, w))
+        exceed += int(np.sum(scores >= observed-1e-12))
+    return observed, (exceed+1)/(permutations+1)
+
+
 def bh_adjust(pvalues):
     pvalues = np.asarray(pvalues, dtype=float)
     if pvalues.ndim != 1 or not len(pvalues) or not np.isfinite(pvalues).all():
