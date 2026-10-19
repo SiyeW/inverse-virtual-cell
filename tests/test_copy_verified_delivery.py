@@ -41,6 +41,21 @@ def test_partial_verified_before_resume(tmp_path):
     assert proof['source']['sha256']==proof['target']['sha256']
 
 
+def test_identity_refreshes_cached_metadata(tmp_path,monkeypatch):
+    p=tmp_path/'source';p.write_bytes(b'abc')
+    real=Path.lstat
+    class Cached:
+        st_mode=real(p).st_mode
+        st_size=3
+        st_mtime_ns=1
+        st_ino=0
+        st_dev=0
+    monkeypatch.setattr(Path,'lstat',lambda path:Cached() if path==p else real(path))
+    refreshed=d.identity(p)
+    assert refreshed['mtime_ns']==p.stat().st_mtime_ns
+    assert refreshed['inode']==p.stat().st_ino
+
+
 def test_bad_partial_never_appended(tmp_path):
     src,dst=tmp_path/'source',tmp_path/'dest'
     src.write_bytes(b'abcdef')

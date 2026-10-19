@@ -25,6 +25,11 @@ def identity(path):
     s = Path(path).lstat()
     if not stat.S_ISREG(s.st_mode):
         raise ValueError(f'Not a regular file: {path}')
+    # CIFS may return cached client mtime after close/fsync. Opening for read
+    # revalidates metadata against the server; keep strict identity checks on
+    # that refreshed view rather than ignoring mtime or trusting file size.
+    with Path(path).open('rb') as f:
+        s = os.fstat(f.fileno())
     return dict(bytes=s.st_size, mtime_ns=s.st_mtime_ns, inode=s.st_ino, device=s.st_dev)
 
 
