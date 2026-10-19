@@ -1,11 +1,13 @@
 """Copy a frozen delivery without source deletion; publish only hash-verified files.
 
 Private manifests contain paths and vendor hashes and must stay outside Git.
-Reads/writes are sequential and bounded; a detached host owns the CLI process.
+Writes are sequential; prefix reads may overlap with bounded buffers.
+A detached host owns the CLI process.
 """
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 import hashlib
 import json
@@ -114,7 +116,46 @@ def hashes(path, callback=lambda *args: None):
     return dict(sha256=sha.hexdigest(), md5=md5.hexdigest(), identity=before)
 
 
-def copy_one(source, target, frozen, vendor_md5=None, callback=lambda *args: None):
+def verify_prefix(reader, prior, length, sha, md5, callback, parallel=False):
+    """Compare every prefix byte; optional bounded read-ahead, hashes stay ordered."""
+    if not length:
+        return
+
+    def accept(block, previous, expected, done):
+        if len(block) != expected or block != previous:
+            raise RuntimeError('Partial prefix mismatch; preserved for inspection')
+        sha.update(block)
+        md5.update(block)
+        callback('verify_resume_prefix', done, length)
+
+    if not parallel:
+        done = 0
+        while done < length:
+            expected = min(CHUNK, length-done)
+            block, previous = reader.read(expected), prior.read(expected)
+            done += expected
+            accept(block, previous, expected, done)
+        return
+
+    # One pending read per endpoint. At most two blocks are prefetched while
+    # the previous pair is checked/hashed; no seek, append or hash reordering.
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        done, expected = 0, min(CHUNK, length)
+        source_read = pool.submit(reader.read, expected)
+        partial_read = pool.submit(prior.read, expected)
+        while done < length:
+            block, previous = source_read.result(), partial_read.result()
+            next_done = done + expected
+            next_expected = min(CHUNK, length-next_done)
+            if next_expected:
+                source_read = pool.submit(reader.read, next_expected)
+                partial_read = pool.submit(prior.read, next_expected)
+            accept(block, previous, expected, next_done)
+            done, expected = next_done, next_expected
+
+
+def copy_one(source, target, frozen, vendor_md5=None, callback=lambda *args: None,
+             parallel_prefix=False):
     """Retain failed partials; never overwrite an existing published target."""
     source, target = Path(source), Path(target)
     if identity(source) != frozen:
@@ -131,15 +172,7 @@ def copy_one(source, target, frozen, vendor_md5=None, callback=lambda *args: Non
         if offset:
             # Compare actual prefix bytes, not size/mtime, before resuming writes.
             with partial.open('rb') as prior:
-                remaining = offset
-                while remaining:
-                    block = reader.read(min(CHUNK, remaining))
-                    if not block or prior.read(len(block)) != block:
-                        raise RuntimeError('Partial prefix mismatch; preserved for inspection')
-                    sha.update(block)
-                    md5.update(block)
-                    remaining -= len(block)
-                    callback('verify_resume_prefix', offset-remaining, offset)
+                verify_prefix(reader, prior, offset, sha, md5, callback, parallel_prefix)
         with partial.open('ab' if partial.exists() else 'xb') as writer:
             done = offset
             while chunk := reader.read(CHUNK):
@@ -186,7 +219,7 @@ def revalidate_published(source, target, frozen, proof, callback=lambda *args: N
     return True
 
 
-def run(manifest_path, manifest_sha256, control):
+def run(manifest_path, manifest_sha256, control, parallel_prefix=False):
     raw = Path(manifest_path).read_bytes()
     if hashlib.sha256(raw).hexdigest() != manifest_sha256:
         raise ValueError('Frozen manifest SHA256 mismatch')
@@ -199,7 +232,8 @@ def run(manifest_path, manifest_sha256, control):
     lock = control/'owner.lock'
     fd = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, 'w') as f:
-        json.dump(dict(pid=os.getpid(), started_at=now(), manifest_sha256=manifest_sha256), f)
+        json.dump(dict(pid=os.getpid(), started_at=now(), manifest_sha256=manifest_sha256,
+                       parallel_prefix=parallel_prefix), f)
     ledger_path = control/'ledger.json'
     ledger = {'manifest_sha256':manifest_sha256, 'verified':{}, 'started_at':now()}
     started, last_status = time.monotonic(), 0.0
@@ -212,6 +246,7 @@ def run(manifest_path, manifest_sha256, control):
         last_status = t
         records = ledger['verified']
         atomic_json(control/'status.json', dict(stage=stage, time=now(), pid=os.getpid(),
+            parallel_prefix=parallel_prefix,
             total_files=m['total_files'], total_bytes=m['total_bytes'],
             verified_files=len(records), verified_bytes=sum(m['files'][r]['bytes'] for r in records),
             elapsed_seconds=t-started, **extra))
@@ -255,7 +290,7 @@ def run(manifest_path, manifest_sha256, control):
                     raise RuntimeError('Existing destination or source mismatch')
                 proof = dict(source=a,target=b,vendor_md5=vendor,accepted_at=now())
             else:
-                proof = copy_one(source,target,frozen,vendor,callback)
+                proof = copy_one(source,target,frozen,vendor,callback,parallel_prefix)
             ledger['verified'][rel] = proof
             atomic_json(ledger_path, ledger)
             status('file_verified', True, file=rel)
@@ -274,6 +309,7 @@ def run(manifest_path, manifest_sha256, control):
                 raise RuntimeError('Final destination proof changed')
         require_source()
         acceptance = dict(complete=True, completed_at=now(), source_retained=True,
+            parallel_prefix=parallel_prefix,
             manifest_sha256=manifest_sha256,total_files=m['total_files'],total_bytes=m['total_bytes'],
             vendor_md5_passed=len(m['vendor_md5']),source=str(src),target=str(dst),
             ledger_sha256=hashlib.sha256(ledger_path.read_bytes()).hexdigest())
@@ -291,5 +327,7 @@ if __name__ == '__main__':
     p.add_argument('--manifest', type=Path, required=True)
     p.add_argument('--manifest-sha256', required=True)
     p.add_argument('--control', type=Path, required=True)
+    p.add_argument('--parallel-prefix', action='store_true',
+                   help='Overlap bounded source/partial reads; still compare the entire prefix')
     a = p.parse_args()
-    run(a.manifest, a.manifest_sha256, a.control)
+    run(a.manifest, a.manifest_sha256, a.control, a.parallel_prefix)

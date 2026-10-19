@@ -1,6 +1,8 @@
 import hashlib
 import importlib.util
 import json
+import io
+import threading
 from pathlib import Path
 
 import pytest
@@ -180,3 +182,106 @@ def test_symlink_rejected(tmp_path):
     try:(root/'link').symlink_to(root/'a')
     except OSError:pytest.skip('symlink privilege unavailable')
     with pytest.raises(ValueError):d.safe_path(root,'link')
+
+
+@pytest.mark.parametrize('parallel',[False,True])
+def test_prefix_hash_order_and_unaligned_resume(tmp_path,monkeypatch,parallel):
+    monkeypatch.setattr(d,'CHUNK',2)
+    src,dst=tmp_path/'source',tmp_path/'target'
+    src.write_bytes(b'abcdefghi');partial=Path(str(dst)+'.receiving');partial.write_bytes(b'abcde')
+    events=[]
+    proof=d.copy_one(src,dst,d.identity(src),hashlib.md5(b'abcdefghi').hexdigest(),
+                     lambda *args:events.append(args),parallel_prefix=parallel)
+    assert dst.read_bytes()==b'abcdefghi' and src.read_bytes()==b'abcdefghi'
+    assert [(n,total) for stage,n,total in events if stage=='verify_resume_prefix']==[(2,5),(4,5),(5,5)]
+    assert proof['source']['sha256']==proof['target']['sha256']==hashlib.sha256(b'abcdefghi').hexdigest()
+
+
+def test_parallel_reads_really_overlap_and_hash_in_source_order(monkeypatch):
+    monkeypatch.setattr(d,'CHUNK',2)
+    rendezvous=threading.Barrier(2)
+    class Paired(io.BytesIO):
+        def read(self,n):
+            assert n<=2
+            rendezvous.wait(timeout=2)
+            return super().read(n)
+    sha,md5=hashlib.sha256(),hashlib.md5();events=[]
+    d.verify_prefix(Paired(b'abcdef'),Paired(b'abcdef'),6,sha,md5,
+                    lambda *a:events.append(a),True)
+    assert sha.hexdigest()==hashlib.sha256(b'abcdef').hexdigest()
+    assert md5.hexdigest()==hashlib.md5(b'abcdef').hexdigest()
+    assert [a[1] for a in events]==[2,4,6]
+
+
+@pytest.mark.parametrize('previous',[b'bad',b'ab'])
+def test_parallel_prefix_mismatch_or_short_read_stops(previous):
+    sha,md5=hashlib.sha256(),hashlib.md5()
+    with pytest.raises(RuntimeError,match='prefix mismatch'):
+        d.verify_prefix(io.BytesIO(b'abc'),io.BytesIO(previous),3,sha,md5,lambda *a:None,True)
+    assert sha.hexdigest()==hashlib.sha256(b'').hexdigest()
+
+
+@pytest.mark.parametrize('broken_source',[False,True])
+def test_parallel_read_error_propagates(broken_source):
+    class Broken(io.BytesIO):
+        def read(self,n):raise OSError('simulated read failure')
+    a,b=Broken(b'abc'),io.BytesIO(b'abc')
+    if not broken_source:a,b=b,a
+    with pytest.raises(OSError,match='read failure'):
+        d.verify_prefix(a,b,3,hashlib.sha256(),hashlib.md5(),lambda *a:None,True)
+
+
+def test_parallel_callback_failure_never_appends(tmp_path,monkeypatch):
+    monkeypatch.setattr(d,'CHUNK',2)
+    src,dst=tmp_path/'source',tmp_path/'target';src.write_bytes(b'abcdef')
+    partial=Path(str(dst)+'.receiving');partial.write_bytes(b'abcd')
+    def stop(*args):raise RuntimeError('stop before append')
+    with pytest.raises(RuntimeError,match='stop before append'):
+        d.copy_one(src,dst,d.identity(src),callback=stop,parallel_prefix=True)
+    assert partial.read_bytes()==b'abcd' and not dst.exists()
+
+
+def test_parallel_vendor_failure_retains_partial(tmp_path):
+    src,dst=tmp_path/'source',tmp_path/'target';src.write_bytes(b'abcdef')
+    partial=Path(str(dst)+'.receiving');partial.write_bytes(b'abc')
+    with pytest.raises(RuntimeError,match='Vendor MD5'):
+        d.copy_one(src,dst,d.identity(src),'0'*32,parallel_prefix=True)
+    assert not dst.exists() and partial.read_bytes()==b'abcdef'
+
+
+def test_parallel_run_keeps_lock_manifest_and_final_hash_gates(tmp_path):
+    m,p,digest=setup_delivery(tmp_path)
+    target=Path(m['target'])/'cellrangerresult/a';target.parent.mkdir(parents=True)
+    Path(str(target)+'.receiving').write_bytes(b'abc'*30)
+    d.run(p,digest,m['control'],parallel_prefix=True)
+    final=json.loads((Path(m['control'])/'final_acceptance.json').read_text())
+    ledger=json.loads((Path(m['control'])/'ledger.json').read_text())
+    assert final['complete'] and final['parallel_prefix'] and not (Path(m['control'])/'owner.lock').exists()
+    assert ledger['verified']['cellrangerresult/a']['source']['sha256']==ledger['verified']['cellrangerresult/a']['target']['sha256']
+    assert d.tree_files(m['source'])==m['files']
+
+
+def test_parallel_final_target_hash_failure_never_publishes(tmp_path,monkeypatch):
+    src,dst=tmp_path/'source',tmp_path/'target';src.write_bytes(b'abcdef')
+    partial=Path(str(dst)+'.receiving');partial.write_bytes(b'abc')
+    original=d.hashes
+    def mismatch(*args,**kwargs):
+        proof=original(*args,**kwargs);proof['sha256']='0'*64;return proof
+    monkeypatch.setattr(d,'hashes',mismatch)
+    with pytest.raises(RuntimeError,match='SHA256 mismatch'):
+        d.copy_one(src,dst,d.identity(src),parallel_prefix=True)
+    assert not dst.exists() and partial.read_bytes()==b'abcdef'
+
+
+def test_parallel_empty_prefix_has_no_reads_or_callbacks():
+    class NoReads:
+        def read(self,n):raise AssertionError('empty prefix must not read')
+    d.verify_prefix(NoReads(),NoReads(),0,hashlib.sha256(),hashlib.md5(),
+                    lambda *a:pytest.fail('unexpected callback'),True)
+
+
+def test_parallel_prefix_never_reads_beyond_partial(monkeypatch):
+    monkeypatch.setattr(d,'CHUNK',2)
+    source,previous=io.BytesIO(b'abcdefghi'),io.BytesIO(b'abcde')
+    d.verify_prefix(source,previous,5,hashlib.sha256(),hashlib.md5(),lambda *a:None,True)
+    assert source.tell()==previous.tell()==5 and source.read()==b'fghi'
