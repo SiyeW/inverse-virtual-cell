@@ -40,7 +40,17 @@ def atomic_json(path, value):
         json.dump(value, f, ensure_ascii=False, indent=2)
         f.flush()
         os.fsync(f.fileno())
-    os.replace(tmp, path)
+    # An SMB reader/lease can briefly deny replacing even an owned JSON file.
+    # Retry only this metadata operation, for a bounded 1.55 seconds total.
+    # Persistent permission errors still stop with the data partial retained.
+    for attempt in range(6):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if attempt == 5:
+                raise
+            time.sleep(.05 * 2**attempt)
 
 
 def safe_path(root, rel):

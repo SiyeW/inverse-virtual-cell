@@ -56,6 +56,32 @@ def test_identity_refreshes_cached_metadata(tmp_path,monkeypatch):
     assert refreshed['inode']==p.stat().st_ino
 
 
+def test_atomic_json_recovers_from_temporary_permission_error(tmp_path,monkeypatch):
+    p=tmp_path/'status.json';p.write_text('{"old": true}')
+    original=d.os.replace
+    calls=[]
+    def transient(a,b):
+        calls.append((a,b))
+        if len(calls)<3:raise PermissionError(13,'temporary sharing denial')
+        return original(a,b)
+    monkeypatch.setattr(d.os,'replace',transient)
+    monkeypatch.setattr(d.time,'sleep',lambda _:None)
+    d.atomic_json(p,{'new':True})
+    assert len(calls)==3 and json.loads(p.read_text())=={'new':True}
+
+
+def test_atomic_json_persistent_permission_error_stops_and_preserves(tmp_path,monkeypatch):
+    p=tmp_path/'status.json';p.write_text('{"old": true}')
+    calls=[]
+    def denied(*args):
+        calls.append(args);raise PermissionError(13,'persistent denial')
+    monkeypatch.setattr(d.os,'replace',denied)
+    monkeypatch.setattr(d.time,'sleep',lambda _:None)
+    with pytest.raises(PermissionError):d.atomic_json(p,{'new':True})
+    assert len(calls)==6 and json.loads(p.read_text())=={'old':True}
+    assert json.loads((tmp_path/'status.json.tmp').read_text())=={'new':True}
+
+
 def test_bad_partial_never_appended(tmp_path):
     src,dst=tmp_path/'source',tmp_path/'dest'
     src.write_bytes(b'abcdef')
