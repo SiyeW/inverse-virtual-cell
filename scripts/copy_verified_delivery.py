@@ -165,6 +165,27 @@ def copy_one(source, target, frozen, vendor_md5=None, callback=lambda *args: Non
     return dict(source=original, target=verified, vendor_md5=vendor_md5, accepted_at=now())
 
 
+def revalidate_published(source, target, frozen, proof, callback=lambda *args: None):
+    """A remapped destination inode requires fresh content proof, never a waiver."""
+    if identity(source) != frozen:
+        raise RuntimeError('Frozen source changed during receipt reconciliation')
+    current = identity(target)
+    if current == proof['target']['identity']:
+        return False
+    fresh = hashes(target, callback)
+    if (fresh['sha256'] != proof['source']['sha256'] or
+            fresh['md5'] != proof['source']['md5'] or
+            (proof.get('vendor_md5') and fresh['md5'] != proof['vendor_md5'])):
+        raise RuntimeError('Published destination content changed; retained without overwrite')
+    if identity(source) != frozen:
+        raise RuntimeError('Source changed during receipt reconciliation')
+    proof.setdefault('identity_revalidations', []).append(dict(
+        previous=proof['target']['identity'], current=fresh['identity'], time=now(),
+        sha256=fresh['sha256'], method='fresh full destination hash, frozen source retained'))
+    proof['target'] = fresh
+    return True
+
+
 def run(manifest_path, manifest_sha256, control):
     raw = Path(manifest_path).read_bytes()
     if hashlib.sha256(raw).hexdigest() != manifest_sha256:
@@ -210,10 +231,12 @@ def run(manifest_path, manifest_sha256, control):
         allowed = set(m['files']) | {r+'.receiving' for r in m['files']}
         if not set(tree_files(dst)).issubset(allowed):
             raise RuntimeError('Unexpected destination files')
-        # Adopt no existing published file without a fresh comparison to source.
+        # CIFS can remap inode numbers. Any changed receipt identity needs a
+        # fresh full content hash; never silently ignore a metadata difference.
         for rel, proof in ledger['verified'].items():
-            if identity(safe_path(dst, rel)) != proof['target']['identity']:
-                raise RuntimeError('Previously accepted destination changed')
+            callback = lambda n,t: status('revalidate_target', file=rel, file_bytes_done=n, file_bytes_total=t)
+            if revalidate_published(safe_path(src,rel), safe_path(dst,rel), m['files'][rel], proof, callback):
+                atomic_json(ledger_path, ledger)
         atomic_json(ledger_path, ledger)
         # Cell Ranger small files first: make scientific inputs available early.
         order = sorted(m['files'], key=lambda r:(not r.startswith('cellrangerresult/'), m['files'][r]['bytes'], r))
@@ -244,8 +267,12 @@ def run(manifest_path, manifest_sha256, control):
         if set(actual) != set(m['files']) or set(ledger['verified']) != set(m['files']):
             raise RuntimeError('Incomplete destination or extra partials')
         for rel, proof in ledger['verified'].items():
-            if actual[rel] != proof['target']['identity'] or proof['source']['sha256'] != proof['target']['sha256']:
+            callback = lambda n,t: status('revalidate_target', file=rel, file_bytes_done=n, file_bytes_total=t)
+            if revalidate_published(safe_path(src,rel), safe_path(dst,rel), m['files'][rel], proof, callback):
+                atomic_json(ledger_path, ledger)
+            if identity(safe_path(dst,rel)) != proof['target']['identity'] or proof['source']['sha256'] != proof['target']['sha256']:
                 raise RuntimeError('Final destination proof changed')
+        require_source()
         acceptance = dict(complete=True, completed_at=now(), source_retained=True,
             manifest_sha256=manifest_sha256,total_files=m['total_files'],total_bytes=m['total_bytes'],
             vendor_md5_passed=len(m['vendor_md5']),source=str(src),target=str(dst),

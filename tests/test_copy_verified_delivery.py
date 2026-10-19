@@ -82,6 +82,25 @@ def test_atomic_json_persistent_permission_error_stops_and_preserves(tmp_path,mo
     assert json.loads((tmp_path/'status.json.tmp').read_text())=={'new':True}
 
 
+def test_destination_identity_remap_requires_fresh_hash(tmp_path):
+    src,dst=tmp_path/'source',tmp_path/'dest';src.write_bytes(b'abc')
+    frozen=d.identity(src);proof=d.copy_one(src,dst,frozen)
+    proof['target']['identity']['inode']=-1
+    calls=[]
+    assert d.revalidate_published(src,dst,frozen,proof,lambda n,t:calls.append(n))
+    assert calls[-1]==3 and proof['target']['identity']==d.identity(dst)
+    assert len(proof['identity_revalidations'])==1
+
+
+def test_revalidation_cannot_waive_same_size_content_change(tmp_path):
+    src,dst=tmp_path/'source',tmp_path/'dest';src.write_bytes(b'abc')
+    frozen=d.identity(src);proof=d.copy_one(src,dst,frozen)
+    dst.write_bytes(b'xyz');proof['target']['identity']['inode']=-1
+    with pytest.raises(RuntimeError,match='content changed'):
+        d.revalidate_published(src,dst,frozen,proof)
+    assert dst.read_bytes()==b'xyz' and src.read_bytes()==b'abc'
+
+
 def test_bad_partial_never_appended(tmp_path):
     src,dst=tmp_path/'source',tmp_path/'dest'
     src.write_bytes(b'abcdef')
