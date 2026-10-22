@@ -1,0 +1,4 @@
+# Freeze the archived Windows working-file bytes, including line endings.
+# The historical Git commit remains the authority for an exact old Linux replay.
+archive/20261023_legacy_chip_analysis/scripts/* -text
+archive/20261023_legacy_chip_analysis/configs/* -text

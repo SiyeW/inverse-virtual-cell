@@ -1,0 +1,11 @@
+# CPU-only adopted laboratory QC. No model/training dependency is required.
+numpy
+scipy
+pandas
+anndata
+h5py
+matplotlib
+threadpoolctl
+Pillow
+psutil
+pytest

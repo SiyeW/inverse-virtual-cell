@@ -7,6 +7,9 @@
 
 ## Overview
 
+Laboratory chip analysis: [核心分析路线](docs/CORE_ANALYSIS_ROADMAP.md) · [脚本入口](scripts/README.md).
+The inverse-modeling prototype below is a separate research track, not a required step of chip QC.
+
 <p align="center">
   <img src="assets/Virtual_cell_model_pipline.png" width="900">
 </p>
@@ -29,7 +32,13 @@ The long-term goal is to infer upstream genetic interventions that may move a ce
 
 ## Guide Capture coverage and cell QC
 
-The separate CPU-only workflow in
+**实验芯片当前默认流程见[核心分析路线](docs/CORE_ANALYSIS_ROADMAP.md)**。
+统一入口为`python scripts/run_core_analysis.py`：完整输入准备、四类guide覆盖/质量、
+NTC背景RNA效应、等细胞数比较、多sgRNA支持、嵌图报告与只读验收。
+新芯片使用独立配置和输出；原AD/MW显著性及旧功能聚类等入口已[原字节归档](archive/20261023_legacy_chip_analysis/README.md)，不进入默认流程。
+模型研究和数据接收工具独立保留，不串入实验QC。CPU专用依赖见`requirements-core-analysis.txt`。
+
+The original stage-one CPU-only workflow in
 [`notebooks/01_lab_chip01_analysis.ipynb`](notebooks/01_lab_chip01_analysis.ipynb)
 starts from a complete 10x filtered feature-barcode HDF5 matrix, per-cell guide
 calls, and the guide reference. It retains the full cell denominator, reports

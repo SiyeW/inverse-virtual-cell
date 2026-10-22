@@ -1,0 +1,21 @@
+{
+  "chip_id": "chipXX",
+  "expected_commit": "REPLACE_WITH_PUSHED_GIT_COMMIT",
+  "matrix_h5": "/verified/chipXX/filtered_feature_bc_matrix.h5",
+  "protospacer_calls": "/verified/chipXX/protospacer_calls_per_cell.csv",
+  "feature_reference": "/verified/chipXX/feature_reference.csv",
+  "metrics_summary": "/verified/chipXX/metrics_summary.csv",
+  "input_hashes_json": "/verified/chipXX/accepted_input_hashes.json",
+  "input_sha256": {
+    "matrix_h5": "REPLACE_WITH_VERIFIED_SHA256",
+    "protospacer_calls": "REPLACE_WITH_VERIFIED_SHA256",
+    "feature_reference": "REPLACE_WITH_VERIFIED_SHA256",
+    "metrics_summary": "REPLACE_WITH_VERIFIED_SHA256"
+  },
+  "allowed_output_parent": "/results/chipXX",
+  "output_root": "/results/chipXX/NEW_BASELINE",
+  "control_target": "Non-Targeting",
+  "count_mad_multiplier": 5,
+  "mitochondrial_floor_pct": 8,
+  "threads": 2
+}

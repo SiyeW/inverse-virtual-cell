@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "run_id": "chipXX_core_v1_YYYYMMDD",
+  "chip_id": "chipXX",
+  "expected_commit": "REPLACE_WITH_PUSHED_GIT_COMMIT",
+  "source": {
+    "path": "/verified/chipXX/baseline/data/chipXX_all_cells_stage1_qc.h5ad",
+    "bytes": 0,
+    "shape": [0, 0],
+    "sha256": "REPLACE_WITH_VERIFIED_SHA256"
+  },
+  "catalogue": {
+    "path": "/verified/chipXX/guide_catalogue.csv",
+    "sha256": "REPLACE_WITH_VERIFIED_SHA256"
+  },
+  "control_target": "Non-Targeting",
+  "features": {"mode": "pooled_raw_mean", "raw_mean_gt": 0.5},
+  "normalization_target_umi": "median_ntc",
+  "min_guide_cells": 10,
+  "matched_cells": 10,
+  "matched_repeats": 8,
+  "pseudocount": 1,
+  "seed": 20261022,
+  "threads": 2,
+  "smoke_prefix_rows": 3000,
+  "allowed_output_parent": "/results/chipXX",
+  "output": "/results/chipXX/NEW_DISTINCT_RUN",
+  "experiment": {"cell_line": "not_recorded", "timepoint": "not_recorded", "biological_replicate": "not_established"}
+}

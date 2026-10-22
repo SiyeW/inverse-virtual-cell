@@ -164,7 +164,7 @@ def choose_qc(obs: pd.DataFrame, config: dict) -> tuple[pd.DataFrame, dict]:
     return result, bounds
 
 
-def coverage_tables(obs: pd.DataFrame, reference: pd.DataFrame, output: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
+def coverage_tables(obs: pd.DataFrame, reference: pd.DataFrame, output: Path, control_target='Non-Targeting') -> tuple[pd.DataFrame, pd.DataFrame]:
     output.mkdir(parents=True, exist_ok=True)
     guide = reference.copy().set_index('name')
     single = obs['guide_status'].eq('single_guide')
@@ -179,7 +179,7 @@ def coverage_tables(obs: pd.DataFrame, reference: pd.DataFrame, output: Path) ->
     for label in masks:
         targets[label] = guide.groupby('target_gene_name')[label].sum().reindex(targets.index).astype(int)
     targets['observed_guides_after_stage1_qc'] = guide[guide['single_guide_after_stage1_qc'].gt(0)].groupby('target_gene_name').size().reindex(targets.index, fill_value=0)
-    targets['is_control'] = targets.index == 'Non-Targeting'
+    targets['is_control'] = targets.index == control_target
     targets['at_least_20_cells'] = targets['single_guide_after_stage1_qc'].ge(20)
     targets['at_least_50_cells'] = targets['single_guide_after_stage1_qc'].ge(50)
     targets['at_least_100_cells'] = targets['single_guide_after_stage1_qc'].ge(100)
@@ -270,7 +270,7 @@ def write_streamed_h5ad(matrix_path: Path, obs: pd.DataFrame, features: pd.DataF
             'bytes': path.stat().st_size, 'sha256': file_hash(path), 'reopened_row_sums_match': True}
 
 
-def plot_qc(obs: pd.DataFrame, guide: pd.DataFrame, targets: pd.DataFrame, thresholds: dict, output: Path) -> list[str]:
+def plot_qc(obs: pd.DataFrame, guide: pd.DataFrame, targets: pd.DataFrame, thresholds: dict, output: Path, chip_id='chip01') -> list[str]:
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
@@ -297,7 +297,7 @@ def plot_qc(obs: pd.DataFrame, guide: pd.DataFrame, targets: pd.DataFrame, thres
     stages = [len(obs), int(obs['qc_pass_stage1'].sum()), int(obs['main_analysis_stage1'].sum())]
     axes[1, 2].bar(['All', 'RNA QC pass', 'Single + QC'], stages, color=['#8B9399', '#367DA2', '#418C70'])
     axes[1, 2].set(ylabel='Cells')
-    fig.suptitle('Chip 01: coverage and stage-1 QC (doublet assessment pending)')
+    fig.suptitle(f'{chip_id}: coverage and stage-1 QC (doublet assessment pending)')
     path = output / '01_cell_qc_overview.png'
     fig.savefig(path, dpi=160)
     plt.close(fig)
@@ -321,6 +321,7 @@ def plot_qc(obs: pd.DataFrame, guide: pd.DataFrame, targets: pd.DataFrame, thres
 def run_analysis(config_path: Path) -> dict:
     import psutil
     config = json.loads(config_path.read_text(encoding='utf-8'))
+    chip_id = config.get('chip_id', 'chip01')
     root = Path(config['output_root'])
     for name in ['data', 'tables', 'figures', 'reports', 'provenance']:
         (root / name).mkdir(parents=True, exist_ok=True)
@@ -339,7 +340,7 @@ def run_analysis(config_path: Path) -> dict:
     stage('choose_and_record_stage1_qc')
     obs, thresholds = choose_qc(obs, config)
     write_json(root / 'provenance/qc_thresholds.json', thresholds)
-    guide, targets = coverage_tables(obs, reference, root / 'tables')
+    guide, targets = coverage_tables(obs, reference, root / 'tables', config.get('control_target','Non-Targeting'))
     pd.DataFrame([{'metric': metric, 'median': float(obs[metric].median()),
                    'p01': float(obs[metric].quantile(.01)), 'p99': float(obs[metric].quantile(.99))}
                   for metric in ['total_counts', 'n_genes_by_counts', 'pct_counts_mt', 'raw_guide_umis']]).to_csv(root / 'tables/cell_metric_summary.csv', index=False)
@@ -354,12 +355,12 @@ def run_analysis(config_path: Path) -> dict:
                   'counts_encoding': 'raw int32 CSR; counts layer is an HDF5 hard link to X',
                   'input_hashes_json': str(config['input_hashes_json'])}
     outputs = []
-    for name, selected in [('chip01_all_cells_stage1_qc.h5ad', np.ones(len(obs), dtype=bool)),
-                            ('chip01_single_guide_stage1_qc.h5ad', obs['main_analysis_stage1'].to_numpy())]:
+    for name, selected in [(f'{chip_id}_all_cells_stage1_qc.h5ad', np.ones(len(obs), dtype=bool)),
+                            (f'{chip_id}_single_guide_stage1_qc.h5ad', obs['main_analysis_stage1'].to_numpy())]:
         stage('write_' + name)
         outputs.append(write_streamed_h5ad(matrix_path, obs, features, rna, selected, root / 'data' / name, provenance))
     stage('plot_qc_and_coverage')
-    figures = plot_qc(obs, guide, targets, thresholds, root / 'figures')
+    figures = plot_qc(obs, guide, targets, thresholds, root / 'figures', chip_id)
     noncontrols = targets.loc[~targets['is_control']]
     summary = {'cells': len(obs), 'rna_features': int(rna.sum()), 'feature_types': feature_types,
                'guide_status': {str(k): int(v) for k, v in obs['guide_status'].value_counts().items()},
@@ -377,7 +378,7 @@ def run_analysis(config_path: Path) -> dict:
                'thresholds': thresholds, 'versions': versions, 'code_commit': code_commit,
                'rss_bytes_at_finish': psutil.Process().memory_info().rss}
     write_json(root / 'provenance/summary.json', summary)
-    report = f'''# 第 1 张芯片：覆盖度与第一阶段质控
+    report = f'''# {chip_id}：覆盖度与第一阶段质控
 
 全量 {len(obs):,} 个细胞，{int(rna.sum()):,} 个 RNA feature（含公司自定义参考，不全部等同于标准基因）。
 单 guide {summary['guide_status'].get('single_guide', 0):,}；多 guide {summary['guide_status'].get('multi_guide', 0):,}；无可靠分配 {summary['guide_status'].get('no_confident_call', 0):,}。

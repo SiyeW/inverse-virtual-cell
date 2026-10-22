@@ -1,0 +1,120 @@
+{
+  "files": [
+    {
+      "sha256": "81ede864fe647f3f054abca2d1877f916bf71dc6d7288e944212d179ba68790e",
+      "former_path": "scripts/chip01_report_alignment.py",
+      "bytes": 11121,
+      "archived_path": "archive/20261023_legacy_chip_analysis/scripts/chip01_report_alignment.py"
+    },
+    {
+      "sha256": "6f773a4cbf31be0ece909dbf428367b736e242cdd06a05747906aeb1a5fe8c53",
+      "former_path": "scripts/chip01_qc_supplement.py",
+      "bytes": 9806,
+      "archived_path": "archive/20261023_legacy_chip_analysis/scripts/chip01_qc_supplement.py"
+    },
+    {
+      "sha256": "673a03c512f9c82c6a31a392537ed3c5672cc0af92461222e68ded3166e2b6c5",
+      "former_path": "scripts/plot_chip01_report_alignment.py",
+      "bytes": 13736,
+      "archived_path": "archive/20261023_legacy_chip_analysis/scripts/plot_chip01_report_alignment.py"
+    },
+    {
+      "sha256": "6bd0806aa70298d91607b04c3892219b5e7e872d6d54fe79d963dbc7aee08c7e",
+      "former_path": "scripts/run_chip01_report_alignment.py",
+      "bytes": 18264,
+      "archived_path": "archive/20261023_legacy_chip_analysis/scripts/run_chip01_report_alignment.py"
+    },
+    {
+      "sha256": "405a2f372aaee8dd06dd0649edfda3bb18da346bca8822900582a15bc11fba40",
+      "former_path": "scripts/run_chip01_qc_supplement.py",
+      "bytes": 24283,
+      "archived_path": "archive/20261023_legacy_chip_analysis/scripts/run_chip01_qc_supplement.py"
+    },
+    {
+      "sha256": "501d7ba88236bb2c43905a092f1552d06602ee3fc77ce42671e9433fc52ef963",
+      "former_path": "scripts/run_chip01_literature.py",
+      "bytes": 20067,
+      "archived_path": "archive/20261023_legacy_chip_analysis/scripts/run_chip01_literature.py"
+    },
+    {
+      "sha256": "a3b6b3d900ab5e06e54b20f9e08cc2c7ea7bc4ab9bce1132a09a96c311b97e2b",
+      "former_path": "scripts/run_chip01_standard.py",
+      "bytes": 18591,
+      "archived_path": "archive/20261023_legacy_chip_analysis/scripts/run_chip01_standard.py"
+    },
+    {
+      "sha256": "4d82127eab7d44e2c4162be3e69d70129949540ae0bcc65e59f43d3e3bce55f2",
+      "former_path": "scripts/finish_chip01_analysis.py",
+      "bytes": 15884,
+      "archived_path": "archive/20261023_legacy_chip_analysis/scripts/finish_chip01_analysis.py"
+    },
+    {
+      "sha256": "f056b5951257f7fd529b08e7c1622856340bbab8de9c6198752288e89f179d7e",
+      "former_path": "scripts/finish_literature_analysis.py",
+      "bytes": 14875,
+      "archived_path": "archive/20261023_legacy_chip_analysis/scripts/finish_literature_analysis.py"
+    },
+    {
+      "sha256": "f0dc114b3b31ecf51d97422566254d61ca958eac0df1b4352ad50adcb34e1ce7",
+      "former_path": "scripts/correct_literature_de_domain.py",
+      "bytes": 6738,
+      "archived_path": "archive/20261023_legacy_chip_analysis/scripts/correct_literature_de_domain.py"
+    },
+    {
+      "sha256": "83c6d19dfa2a66badb8c63d19078ff05b19e0b01bae4fc2d92eb61757ff96a22",
+      "former_path": "scripts/review_chip01_results.py",
+      "bytes": 10182,
+      "archived_path": "archive/20261023_legacy_chip_analysis/scripts/review_chip01_results.py"
+    },
+    {
+      "sha256": "45e3d580bbe0c6dc17bcb6264b233907750b374d6e632abd5c1d8b62bcd699d4",
+      "former_path": "scripts/review_control_covariates.py",
+      "bytes": 5964,
+      "archived_path": "archive/20261023_legacy_chip_analysis/scripts/review_control_covariates.py"
+    },
+    {
+      "sha256": "1bb4e07bf25c72128abd159ccd997e690679f4cac41d3808c14b48a4ef059071",
+      "former_path": "scripts/diagnose_control_guides.py",
+      "bytes": 3686,
+      "archived_path": "archive/20261023_legacy_chip_analysis/scripts/diagnose_control_guides.py"
+    },
+    {
+      "sha256": "47699129b3624caf0beba18b333eb22838ba514ffc2c8e175a4ab5049556f70e",
+      "former_path": "scripts/diagnose_doublets.py",
+      "bytes": 5488,
+      "archived_path": "archive/20261023_legacy_chip_analysis/scripts/diagnose_doublets.py"
+    },
+    {
+      "sha256": "e7ac3530ec7a4d445ad26b1bb18072e875e58f1595df2631fc4d623431f79619",
+      "former_path": "scripts/perturbation_statistics.py",
+      "bytes": 5220,
+      "archived_path": "archive/20261023_legacy_chip_analysis/scripts/perturbation_statistics.py"
+    },
+    {
+      "sha256": "ffce4670120b7f74151929126a58f1a84592ac8fee965f9b047f170a04eef1b1",
+      "former_path": "scripts/replogle2022_statistics.py",
+      "bytes": 9155,
+      "archived_path": "archive/20261023_legacy_chip_analysis/scripts/replogle2022_statistics.py"
+    },
+    {
+      "sha256": "54ee737d6779f7c04efe0fae077e5f69097145b179e2a7c2b2d44b54e27d1edc",
+      "former_path": "scripts/smoke_perturbation_statistics.py",
+      "bytes": 5146,
+      "archived_path": "archive/20261023_legacy_chip_analysis/scripts/smoke_perturbation_statistics.py"
+    },
+    {
+      "sha256": "5f5600d4cd32991763ce63a40640a8472cdd1069dde2092e1f7b212940b57868",
+      "former_path": "configs/replogle2022.json",
+      "bytes": 2488,
+      "archived_path": "archive/20261023_legacy_chip_analysis/configs/replogle2022.json"
+    },
+    {
+      "sha256": "0a2560665848c486bef44a216c7132256b54470ad663af09e1d13494c1c31db8",
+      "former_path": "configs/replogle2022.md",
+      "bytes": 5187,
+      "archived_path": "archive/20261023_legacy_chip_analysis/configs/replogle2022.md"
+    }
+  ],
+  "source_commit": "c82bcf418731122de2f3244a4bbb1baed6225d7d",
+  "method": "Exact file moves, SHA256 before and after; no data files"
+}
