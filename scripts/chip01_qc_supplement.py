@@ -7,7 +7,7 @@ from itertools import combinations
 import numpy as np
 import pandas as pd
 from scipy import sparse
-from scipy.stats import false_discovery_control
+from scipy.stats import false_discovery_control, rankdata
 
 
 def distribution_summary(values, thresholds=()):
@@ -158,3 +158,32 @@ def null_test_summary(pvalues, minimum=1e-300):
                 raw_p_lt_001=int((p < .01).sum()), bh_q_lt_005=int((q < .05).sum()),
                 min_p=float(p.min()), min_q=float(q.min()),
                 median_neg_log10_p=float(np.median(-np.log10(np.maximum(p, minimum)))))
+
+
+def permutation_rank_diagnostic(x, y, permutations=19999, seed=0):
+    """Bounded independent rank-sum randomization check, not a DE replacement.
+
+    Uses a declared two-sided absolute-deviation statistic conditional on all
+    observed values, preserving ties and unequal sample sizes. Exact ordering
+    and count data are unchanged; Monte Carlo p uses the plus-one correction.
+    """
+    x, y = np.asarray(x, dtype=float), np.asarray(y, dtype=float)
+    if x.ndim != 1 or y.ndim != 1 or not min(len(x), len(y)) or permutations < 1:
+        raise ValueError('Nonempty one-dimensional samples and positive budget required')
+    if not np.isfinite(x).all() or not np.isfinite(y).all():
+        raise ValueError('Nonfinite diagnostic observations')
+    if len(x) > len(y): x, y = y, x
+    n, m = len(x), len(y)
+    ranks = rankdata(np.concatenate([x, y]), method='average')
+    observed_u = ranks[:n].sum()-n*(n+1)/2
+    distance = abs(observed_u-n*m/2)
+    rng = np.random.default_rng(seed)
+    exceed = 0
+    for _ in range(permutations):
+        selected = rng.choice(n+m, n, replace=False)
+        u = ranks[selected].sum()-n*(n+1)/2
+        exceed += abs(u-n*m/2) >= distance-1e-12
+    return dict(pvalue=(int(exceed)+1)/(permutations+1), exceedances=int(exceed),
+                permutations=permutations, statistic=float(distance),
+                statistic_definition='abs(U - n*m/2)', seed=seed,
+                interpretation='A spot diagnostic only; not recalibrated genome-wide DE')

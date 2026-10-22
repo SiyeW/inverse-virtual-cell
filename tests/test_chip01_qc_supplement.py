@@ -8,7 +8,7 @@ from scipy import sparse
 sys.path.insert(0, str(Path(__file__).parents[1]/'scripts'))
 from chip01_qc_supplement import (distribution_summary, validate_guide_coverage,
     plan_null_splits, library_normalize, masked_response_profiles,
-    profile_correlations, guide_agreement, null_test_summary)
+    profile_correlations, guide_agreement, null_test_summary, permutation_rank_diagnostic)
 
 
 def test_zero_guides_retained_no_pseudocount_in_skew():
@@ -115,3 +115,12 @@ def test_real_io_null_smoke_retains_nan_untested_and_full_family(tmp_path):
     rows=pd.read_csv(output/'tables/null_comparison_summary.csv')
     assert len(rows)==6 and rows.tested_features.eq(8).all()
     assert states[-1][1]['completed_genes']==8
+
+
+def test_tied_rare_event_randomization_tracks_known_label_probability():
+    x=np.r_[1.,np.zeros(24)];y=np.zeros(2505)
+    result=permutation_rank_diagnostic(x,y,19999,14)
+    assert abs(result['pvalue']-25/2530)<.003
+    assert result==permutation_rank_diagnostic(y,x,19999,14)
+    assert permutation_rank_diagnostic(np.zeros(3),np.zeros(20),99)['pvalue']==1
+    with pytest.raises(ValueError):permutation_rank_diagnostic([np.nan],[1,2],9)
