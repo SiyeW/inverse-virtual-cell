@@ -70,7 +70,7 @@ def run(args):
         matplotlib.use('Agg')
         coverage=pd.read_csv(parent/'tables/guide_coverage.csv')
         with threadpool_limits(config['threads']):
-            summary=write_response_agreement(records,profiles,obs,coverage,features,reference_total,config,output)
+            summary=write_response_agreement(records,profiles,obs,coverage,genes,features,reference_total,config,output)
         after=source.stat()
         if (source_before.st_size,source_before.st_mtime_ns)!=(after.st_size,after.st_mtime_ns):raise ValueError('Source identity changed')
         for rel,expected in original.items():

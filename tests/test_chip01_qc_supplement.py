@@ -133,3 +133,23 @@ def test_tied_rare_event_randomization_tracks_known_label_probability():
     assert result==permutation_rank_diagnostic(y,x,19999,14)
     assert permutation_rank_diagnostic(np.zeros(3),np.zeros(20),99)['pvalue']==1
     with pytest.raises(ValueError):permutation_rank_diagnostic([np.nan],[1,2],9)
+
+
+def test_profile_output_writer_retains_gene_identity_and_unassessed_targets(tmp_path):
+    import matplotlib
+    matplotlib.use('Agg')
+    from run_chip01_qc_supplement import write_response_agreement
+    records=pd.DataFrame(dict(guide=list('abcdef'),target=['G','G','H','H','ctrl','ctrl'],
+        cells=[10,12,20,30,15,18],guide_type=['targeting']*4+['NTC']*2))
+    labels=np.repeat(records.target.to_numpy(),records.cells.to_numpy())
+    guides=np.repeat(records.guide.to_numpy(),records.cells.to_numpy())
+    obs=pd.DataFrame(dict(guide_id=guides,perturbed_gene=labels))
+    coverage=pd.DataFrame(dict(guide_type=['targeting']*3+['NTC'],target_gene_name=['G','H','Q','Non-Targeting']))
+    genes=pd.DataFrame(index=[f'gene{i}' for i in range(5)])
+    output=tmp_path/'agreement';output.mkdir();(output/'tables').mkdir();(output/'figures').mkdir()
+    summary=write_response_agreement(records,np.random.default_rng(7).normal(size=(6,5)),obs,coverage,
+        genes,np.arange(5),100,dict(min_guide_cells=10,max_between_pairs=10,seed=0),output)
+    assert summary['targets_assessable']==2 and summary['targets_unassessable']==1
+    stored=np.load(output/'tables/guide_response_profiles.npz')
+    np.testing.assert_array_equal(stored['gene_ids'],genes.index.to_numpy())
+    assert (output/'figures/03_guide_agreement.png').exists()

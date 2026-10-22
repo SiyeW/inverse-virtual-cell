@@ -128,11 +128,11 @@ def response_agreement(counts, obs, genes, coverage, core, config, output):
         genes.gene_name.astype('string').fillna('').to_numpy(dtype=str)[features],
         genes.gene_name.astype('string').fillna('').to_numpy(dtype=str),
         min_cells=config['min_guide_cells'])
-    return write_response_agreement(records, profiles, obs, coverage, features,
+    return write_response_agreement(records, profiles, obs, coverage, genes, features,
                                     reference_total, config, output)
 
 
-def write_response_agreement(records, profiles, obs, coverage, features,
+def write_response_agreement(records, profiles, obs, coverage, genes, features,
                              reference_total, config, output):
     import matplotlib.pyplot as plt
     pairs, valid = guide_agreement(records, profiles, max_between=config['max_between_pairs'], seed=config['seed'])
