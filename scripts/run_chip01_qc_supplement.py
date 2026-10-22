@@ -199,7 +199,7 @@ def negative_control_checks(counts, obs, genes, core, config, output, runtime, s
     indices=np.flatnonzero(genes.relative_z_defined.to_numpy(dtype=bool))
     if len(indices)!=config['expected_tested_genes']:raise ValueError('Frozen DE testing domain differs')
     ntc=np.flatnonzero(obs.is_control.to_numpy(dtype=bool))
-    ref_total=float(np.median(obs.loc[core,'total_counts']))
+    ref_total=float(config.get('normalization_target_umi',np.median(obs.loc[core,'total_counts'])))
     norm=library_normalize(counts[ntc],obs.iloc[ntc].total_counts.to_numpy(),ref_total)
     sizes=config['null_sizes'] if not smoke else [1,25]
     repeats=config['null_repeats'] if not smoke else 2
