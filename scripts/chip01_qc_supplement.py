@@ -4,6 +4,7 @@ These diagnostics do not select cells, infer DNA editing, replace the DE
 method, or turn sgRNA pairs into biological replicates.
 """
 from itertools import combinations
+from collections import Counter
 import numpy as np
 import pandas as pd
 from scipy import sparse
@@ -77,10 +78,11 @@ def library_normalize(counts, totals, reference_total):
 
 
 def masked_response_profiles(normalized, guides, targets, center, scale, feature_names,
-                             min_cells=10):
+                             global_feature_names, min_cells=10):
     guides, targets = np.asarray(guides, dtype=str), np.asarray(targets, dtype=str)
     center, scale = np.asarray(center, dtype=float), np.asarray(scale, dtype=float)
     names = np.asarray(feature_names, dtype=str)
+    global_counts = Counter(np.asarray(global_feature_names, dtype=str))
     if normalized.shape != (len(guides), len(center)) or len(targets) != len(guides):
         raise ValueError('Profile identity/shape mismatch')
     if names.shape != scale.shape or scale.shape != center.shape or not np.isfinite(scale).all() or (scale <= 0).any():
@@ -97,7 +99,7 @@ def masked_response_profiles(normalized, guides, targets, center, scale, feature
         mean = np.asarray(normalized[mask].mean(axis=0)).ravel()
         response = (mean-center)/scale
         direct = np.flatnonzero(names == target)
-        masked = len(direct) == 1
+        masked = len(direct) == 1 and global_counts[target] == 1
         if masked:
             response[direct[0]] = 0
         records.append(dict(guide=guide, target=target, cells=int(mask.sum()),

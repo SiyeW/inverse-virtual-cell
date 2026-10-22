@@ -54,12 +54,21 @@ def test_normalization_preserves_raw_counts_and_rejects_invalid_totals():
 def test_guide_profiles_mask_only_unambiguous_direct_rna_not_guessed_host():
     x = sparse.csr_matrix([[4, 1, 2], [4, 1, 2], [1, 4, 3], [1, 4, 3], [2, 3, 5]])
     rec, profiles = masked_response_profiles(x, ['a', 'a', 'b', 'b', 'low'],
-        ['G', 'G', 'PB_ORF', 'PB_ORF', 'G'], np.ones(3), np.ones(3), ['G', 'H', 'I'], 2)
+        ['G', 'G', 'PB_ORF', 'PB_ORF', 'G'], np.ones(3), np.ones(3), ['G', 'H', 'I'], ['G', 'H', 'I'], 2)
     assert list(rec.guide) == ['a', 'b']
     assert profiles[0, 0] == 0 and profiles[1, 1] == 3
     assert rec.direct_target_feature_masked.tolist() == [True, False]
     with pytest.raises(ValueError):
-        masked_response_profiles(x, ['a']*5, ['G', 'H', 'G', 'G', 'G'], np.ones(3), np.ones(3), ['G', 'H', 'I'], 2)
+        masked_response_profiles(x, ['a']*5, ['G', 'H', 'G', 'G', 'G'], np.ones(3), np.ones(3), ['G', 'H', 'I'], ['G', 'H', 'I'], 2)
+
+
+def test_global_rna_name_ambiguity_cannot_be_hidden_by_feature_selection():
+    x=sparse.csr_matrix([[5,2,3],[5,2,3],[2,4,7],[2,4,7]])
+    records,profiles=masked_response_profiles(x,['a','a','b','b'],['G','G','H','H'],
+        np.ones(3),np.ones(3),['G','H','I'],['G','G','H','I'],2)
+    assert not records.loc[0,'direct_target_feature_masked']
+    assert profiles[0,0]==4
+    assert records.loc[1,'direct_target_feature_masked'] and profiles[1,1]==0
 
 
 def test_constant_profiles_explicitly_unassessable():
