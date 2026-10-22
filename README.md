@@ -8,6 +8,7 @@
 ## Overview
 
 Laboratory chip analysis: [核心分析路线](docs/CORE_ANALYSIS_ROADMAP.md) · [脚本入口](scripts/README.md).
+Multi-chip study layout and reproducibility gates: [运行与查证](docs/CORE_STUDY_OPERATIONS.md).
 The inverse-modeling prototype below is a separate research track, not a required step of chip QC.
 
 <p align="center">

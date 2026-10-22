@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "study_id": "chip_study_YYYYMMDD",
+  "execution_host": "REPLACE_WITH_ACTUAL_EXECUTION_HOST",
+  "code_commit": "0000000000000000000000000000000000000000",
+  "study_root": "/project/lab/studies/chip_study_YYYYMMDD_r1",
+  "protected_roots": ["/project/lab/deliveries", "/project/provenance", "/project/lab/analyses/chip01"],
+  "source_manifest": {"path": "/project/provenance/accepted/manifest.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+  "source_ledger": {"path": "/project/provenance/accepted/ledger.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+  "feature_reference": {"path": "/project/lab/deliveries/accepted/feature_reference.csv", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+  "create_bam": false,
+  "source_identity_policy": "strict",
+  "capture_units_confirmed": false,
+  "chips": [{
+    "chip_id": "chip02",
+    "expected_fastq_files": 0,
+    "expected_fastq_bytes": 0,
+    "libraries": [
+      {"fastq_id": "sample_RNA", "feature_type": "Gene Expression", "fastq_dir": "/project/lab/deliveries/accepted/rna", "receipt_keys": ["rna/sample_RNA_S1_L001_R1_001.fastq.gz", "rna/sample_RNA_S1_L001_R2_001.fastq.gz"]},
+      {"fastq_id": "sample_CRISPR", "feature_type": "CRISPR Guide Capture", "fastq_dir": "/project/lab/deliveries/accepted/guide", "receipt_keys": ["guide/sample_CRISPR_S1_L001_R1_001.fastq.gz", "guide/sample_CRISPR_S1_L001_R2_001.fastq.gz"]}
+    ]
+  }],
+  "joint": {"chip_ids": ["chip01", "chip02"], "retain_chip_identity": true, "experiment_relation": "not_confirmed"},
+  "reuse": {"chip01": {"source": {"path": "/project/lab/analyses/chip01/baseline/data/chip01_all_cells_stage1_qc.h5ad", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"}, "compatibility_confirmed": false}},
+  "reference": {"expected_name": "EXACT_ORIGINAL_CUSTOM_REFERENCE", "path": null, "content_receipt": null},
+  "runtime": {"cellranger": null, "version": "10.1.0", "work_root": null, "reserved_workspace_bytes": null, "filesystem_probe_accepted": false, "localcores": 8, "localmem_gb": 64}
+}

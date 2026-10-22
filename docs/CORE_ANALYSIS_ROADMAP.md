@@ -2,6 +2,8 @@
 
 这是实验芯片的**当前默认入口**，不是AI训练路线。保留已采用的覆盖、质控、RNA效应和多sgRNA支持分析；旧统计试验放入[历史归档](../archive/20261023_legacy_chip_analysis/README.md)，不再默认串起来运行。
 
+多芯片批次的工作目录、FASTQ/Cell Ranger前置门禁、逐阶段证据与联合分析规范见[运行与查证](CORE_STUDY_OPERATIONS.md)。`manage_core_study.py`只负责可追踪准备与检查，不替代本页科学算法，也不自动启动作业。
+
 ## 一条主线
 
 | 顺序 | 要回答的问题 | 核心输出 |
