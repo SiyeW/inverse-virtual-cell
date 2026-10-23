@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "expected_commit": "REPLACE_WITH_PUSHED_COMMIT",
+  "capture_units_confirmed": false,
+  "expected_chips": ["chip01", "chip02"],
+  "inputs": [
+    {"chip_id": "chip01", "path": "/verified/chip01/core", "manifest_sha256": "REPLACE_WITH_ACCEPTED_MANIFEST_SHA256"},
+    {"chip_id": "chip02", "path": "/verified/chip02/core", "manifest_sha256": "REPLACE_WITH_ACCEPTED_MANIFEST_SHA256"}
+  ],
+  "comparability_review": {"path": "/private/count_reference_compatibility.json", "sha256": "REPLACE_WITH_REVIEW_SHA256"},
+  "minimum_common_features": 2,
+  "output": "/results/study/joint/core_comparison_01",
+  "allowed_output_parent": "/results/study/joint"
+}

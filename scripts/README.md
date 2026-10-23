@@ -8,6 +8,7 @@
 | 10x完整输入→全细胞原始counts与RNA QC | `run_core_analysis.py prepare`（调用`analyze_guide_capture_qc.py`） |
 | 四类覆盖/细胞质量、NTC RNA效应、等n比较、多guide支持及报告 | `run_core_analysis.py run` |
 | 已有核心结果只读验收，不重跑 | `run_core_analysis.py verify` |
+| 已验独立芯片结果→共同RNA范围、NTC背景和跨芯片一致性报告 | `run_core_comparison.py run / verify`，见[总体比较](../docs/CORE_COMPARISON.md) |
 | 单独表达结构/双细胞工作流审计 | `analyze_expression_structure.py`、`audit_scrublet_workflow.py`，不是自动删细胞 |
 | 原版notebook入口 | `run_analysis_notebook.py`，保留旧回放；新批次优先用prepare |
 | 旧试验/旧统计路线 | 已移入[archive](../archive/20261023_legacy_chip_analysis/README.md)，只显式查证/历史回放 |
