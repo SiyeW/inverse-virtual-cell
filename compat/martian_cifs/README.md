@@ -58,6 +58,13 @@ It accepts only a new provenance test directory, never an existing analysis.
 `verify_fixture.py` also rejects publication errors and malformed final metadata
 even when the vendor program returns exit code zero.
 
+`replay_prefix_fixture.py` admits only the previously accepted 100,000-pair
+RNA/CRISPR prefixes and engineering-only forced 10-cell recipe. It verifies
+those small derived FASTQ hashes, the reference's frozen metadata, baseline
+output hashes, and the independent software view before execution. It never
+regenerates prefixes or reads full original FASTQs. Success additionally requires
+exact matrix arrays, guide calls, feature definitions, QC and output coverage.
+
 Never enable automatic recovery of a real failed analysis as part of this test.
 Do not modify shared mounts, permissions, original FASTQ/BAM, previous outputs,
 or the installed vendor package. Record runtime, shim, inputs and outputs with
