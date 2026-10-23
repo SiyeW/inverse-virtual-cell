@@ -1,9 +1,9 @@
 diff --git a/martian/core/cifs_publish.go b/martian/core/cifs_publish.go
 new file mode 100644
-index 0000000..8e5982a
+index 0000000..7a3f43b
 --- /dev/null
 +++ b/martian/core/cifs_publish.go
-@@ -0,0 +1,131 @@
+@@ -0,0 +1,139 @@
 +// Opt-in experimental output publication. Scientific stages are unchanged.
 +package core
 +
@@ -109,6 +109,14 @@ index 0000000..8e5982a
 +		_, err := w.Write(nullBytes)
 +		return err
 +	}
++	// Match upstream: an optional output may have a preallocated path without
++	// a file when that assay is disabled. Publish JSON null, not malformed JSON.
++	if _, err := os.Lstat(src); os.IsNotExist(err) {
++		_, err = w.Write(nullBytes)
++		return err
++	} else if err != nil {
++		return err
++	}
 +	root, err := filepath.Abs(pipestancePath)
 +	if err != nil {
 +		return err
@@ -137,10 +145,10 @@ index 0000000..8e5982a
 +}
 diff --git a/martian/core/cifs_publish_test.go b/martian/core/cifs_publish_test.go
 new file mode 100644
-index 0000000..c7a6196
+index 0000000..d9a1f6f
 --- /dev/null
 +++ b/martian/core/cifs_publish_test.go
-@@ -0,0 +1,127 @@
+@@ -0,0 +1,134 @@
 +package core
 +
 +import (
@@ -256,6 +264,13 @@ index 0000000..c7a6196
 +	if w.String() != "null" {
 +		t.Fatal(w.String())
 +	}
++}
++
++func TestCifsPublicationMissingOptional(t *testing.T) {
++	root:=t.TempDir();value,_:=json.Marshal(filepath.Join(root,"disabled-assay.csv"))
++	var w bytes.Buffer
++	if err:=cifsMoveOutFile(&w,&syntax.StructMember{Id:"optional"},value,root,filepath.Join(root,"outs"));err!=nil{t.Fatal(err)}
++	if w.String()!="null"{t.Fatal("missing optional output must remain JSON null")}
 +}
 +
 +func TestCifsPublicationOptIn(t *testing.T) {

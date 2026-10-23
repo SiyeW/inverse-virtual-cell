@@ -1,0 +1,24 @@
+filetype txt;
+
+stage MAKE_ONCE(
+    in  string marker,
+    out int value,
+    src py "stages/make_once",
+) using (mem_gb = 1, threads = 1,)
+
+stage WAIT_AND_WRITE(
+    in  int value,
+    in  string started,
+    out txt result,
+    src py "stages/wait_and_write",
+) using (mem_gb = 1, threads = 1,)
+
+pipeline CIFS_RESUME_TEST(
+    in string marker,
+    in string started,
+    out txt result,
+){
+    call MAKE_ONCE(marker = self.marker,)
+    call WAIT_AND_WRITE(value = MAKE_ONCE.value, started = self.started,)
+    return (result = WAIT_AND_WRITE.result,)
+}

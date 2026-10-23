@@ -51,6 +51,13 @@ interrupt/resume. A version/help check, preflight pass, or unit-test result does
 not establish end-to-end or production readiness. For CRISPR use, an additional
 bounded RNA+guide fixture must also preserve original guide identities.
 
+`run_resume_fixture.py` is a synthetic interruption/resume check. Its first
+stage can execute only once; the second stage is deliberately interrupted.
+Successful recovery must reuse the completed step and publish the value 42.
+It accepts only a new provenance test directory, never an existing analysis.
+`verify_fixture.py` also rejects publication errors and malformed final metadata
+even when the vendor program returns exit code zero.
+
 Never enable automatic recovery of a real failed analysis as part of this test.
 Do not modify shared mounts, permissions, original FASTQ/BAM, previous outputs,
 or the installed vendor package. Record runtime, shim, inputs and outputs with

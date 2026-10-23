@@ -36,6 +36,12 @@ def verify(baseline,candidate):
         status=json.loads((root/'status.json').read_text())
         if status.get('stage')!='engineering_fixture_passed' or status.get('scientific_result') is not False:
             raise ValueError('Only completed official engineering fixtures admitted')
+        log=root/'tiny_no_bam/_log'
+        if log.stat().st_size>2_000_000:raise ValueError('Unexpected fixture log size')
+        if 'Could not move output files' in log.read_text():raise ValueError('Runtime reported output publication errors')
+        final=root/'tiny_no_bam/SC_RNA_COUNTER_CS/fork0/_outs'
+        if final.stat().st_size>100000:raise ValueError('Unexpected final output metadata size')
+        json.loads(final.read_text())
     old=inventory(baseline/'tiny_no_bam/outs');new=inventory(candidate/'tiny_no_bam/outs')
     accepted=json.loads((baseline/'fixture_output_manifest.json').read_text())
     if old!=accepted:raise ValueError('Baseline differs from its accepted output hashes')
