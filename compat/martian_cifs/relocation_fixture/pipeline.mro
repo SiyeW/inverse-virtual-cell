@@ -1,0 +1,19 @@
+filetype txt;
+stage SPLIT_WORK(
+    in string marker,
+    in string release,
+    out txt result,
+    src py "stages/split_work",
+) split (
+    in int index,
+    out txt piece,
+) using (mem_gb = 1, threads = 1,)
+
+pipeline CIFS_MULTI_RECOVERY(
+    in string marker,
+    in string release,
+    out txt result,
+){
+    call SPLIT_WORK(marker=self.marker, release=self.release,)
+    return (result=SPLIT_WORK.result,)
+}
