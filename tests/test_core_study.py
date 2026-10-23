@@ -57,6 +57,14 @@ def save_config(tmp_path, config):
     return p
 
 
+@pytest.mark.parametrize('field,value', [('rna_chemistry', 'unknown'), ('rna_chemistry', []), ('no_secondary', 'false')])
+def test_invalid_explicit_runtime_options_rejected(tmp_path, field, value):
+    config = fixture(tmp_path)
+    config['runtime'][field] = value
+    with pytest.raises(ValueError):
+        study.validate(config)
+
+
 def clean_revision(monkeypatch):
     monkeypatch.setattr(study.subprocess, 'check_output', lambda args, **kwargs: '1'*40 if 'rev-parse' in args else '')
 

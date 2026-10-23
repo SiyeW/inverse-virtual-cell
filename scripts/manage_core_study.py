@@ -116,6 +116,11 @@ def validate(config):
         raise ValueError('Distinct chip identifiers required')
     if config.get('create_bam') is not False:
         raise ValueError('This study contract forbids new BAM output')
+    chemistry = config['runtime'].get('rna_chemistry', 'auto')
+    if not isinstance(chemistry, str) or chemistry not in {'auto','SC5P-PE-v3','SC5P-R2-v3','SC5P-PE','SC5P-R2','SC3Pv3','SC3Pv4'}:
+        raise ValueError('Unsupported explicit RNA chemistry')
+    if type(config['runtime'].get('no_secondary', False)) is not bool:
+        raise ValueError('no_secondary must be a boolean')
     if config.get('source_identity_policy', 'strict') not in ['strict', 'cifs-inode-audit-v1']:
         raise ValueError('Unknown source identity policy')
     seen = set()
@@ -363,6 +368,22 @@ def load_initialized(study):
     return read_json(study/'study.json')
 
 
+def cellranger_csv(config, chip):
+    stream = io.StringIO(newline='')
+    writer = csv.writer(stream, lineterminator='\n')
+    writer.writerows([['[gene-expression]'],['reference',config['reference']['path']],['create-bam','false']])
+    chemistry = config['runtime'].get('rna_chemistry', 'auto')
+    if chemistry != 'auto':
+        writer.writerow(['chemistry', chemistry])
+    if config['runtime'].get('no_secondary', False):
+        writer.writerow(['no-secondary','true'])
+    writer.writerows([[],['[feature]'],['reference',config['feature_reference']['path']],[],
+                     ['[libraries]'],['fastq_id','fastqs','feature_types']])
+    for library in chip['libraries']:
+        writer.writerow([library['fastq_id'],library['fastq_dir'],library['feature_type']])
+    return stream.getvalue()
+
+
 def render(config):
     report = check(config)
     if report['blockers']:
@@ -370,15 +391,7 @@ def render(config):
     out = absolute(config['study_root'])/'configs'/'cellranger'
     out.mkdir()
     for chip in config['chips']:
-        stream = io.StringIO(newline='')
-        writer = csv.writer(stream, lineterminator='\n')
-        for row in [['[gene-expression]'],['reference',config['reference']['path']],['create-bam','false'],[],
-                    ['[feature]'],['reference',config['feature_reference']['path']],[],
-                    ['[libraries]'],['fastq_id','fastqs','feature_types']]:
-            writer.writerow(row)
-        for library in chip['libraries']:
-            writer.writerow([library['fastq_id'],library['fastq_dir'],library['feature_type']])
-        write_new(out/(chip['chip_id']+'.csv'), stream.getvalue())
+        write_new(out/(chip['chip_id']+'.csv'), cellranger_csv(config, chip))
     return dict(configs_written=len(config['chips']), workloads_started=0)
 
 

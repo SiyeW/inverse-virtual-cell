@@ -5,6 +5,7 @@
 | 用途 | 入口 |
 |---|---|
 | 多芯片目录/输入回执/前置检查及无BAM配置，绝不启动作业 | `manage_core_study.py init / check / render-cellranger`，见[运行与查证](../docs/CORE_STUDY_OPERATIONS.md) |
+| 明确启动单张芯片的Cell Ranger，仅限已冻结且检查通过的批次 | `run_cellranger_chip.py --study ... --chip ... --attempt ...`；单owner、无自动重试/下一芯片，磁盘保护停机保留现场 |
 | sgRNA计数定义与可选靶点表达标注分开，保留原始靶点/对照身份 | `prepare_guide_counting_reference.py`，见[输入契约](../docs/GUIDE_COUNTING_REFERENCE.md)；不改RNA参考或把缺失靶点改成NTC |
 | 接收回执约束下抽取成对FASTQ前缀，仅作小规模工程检查 | `prepare_fastq_prefix_smoke.py`；限制读取条数、逐条配对、输出SHA，不代表正式芯片结果 |
 | 10x完整输入→全细胞原始counts与RNA QC | `run_core_analysis.py prepare`（调用`analyze_guide_capture_qc.py`） |
