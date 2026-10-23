@@ -86,6 +86,25 @@ def test_catalogue_conflicts_stop_without_guessing(tmp_path,problem):
     with pytest.raises(ValueError):read_catalogue(dict(path=str(p),sha256=sha256(p)),obs,'Non-Targeting')
 
 
+def test_catalogue_reuses_design_not_previous_population_or_selection(tmp_path):
+    _,config,_,obs,_,_=inputs(tmp_path)
+    p=Path(config['catalogue']['path']);table=pd.read_csv(p)
+    table['sequence']='ACGT'
+    table['single_guide_before_qc']=999999
+    table['single_guide_after_stage1_qc']=999999
+    table['cells_with_guide_including_multi']=999999
+    table['historical_core_guide']=True
+    table['pure_core_guide']=True
+    table['source_role_validated_in_this_assay']=True
+    table.to_csv(p,index=False)
+    actual=read_catalogue(dict(path=str(p),sha256=sha256(p)),obs,'Non-Targeting')
+    assert actual.sequence.eq('ACGT').all()
+    assert actual.single_guide_before_qc.sum()==len(obs)
+    assert actual.single_guide_after_stage1_qc.sum()==len(obs)
+    assert not actual.source_role_validated_in_this_assay.any()
+    assert not {'cells_with_guide_including_multi','historical_core_guide','pure_core_guide'} & set(actual)
+
+
 def test_frozen_ids_preserve_exact_order_and_reject_ambiguity(tmp_path):
     _,_,counts,_,_,var=inputs(tmp_path)
     path=tmp_path/'features.csv'

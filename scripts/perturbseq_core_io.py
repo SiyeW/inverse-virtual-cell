@@ -175,6 +175,11 @@ def read_catalogue(spec, all_obs, control_target):
     required = {'guide', 'target_gene_name', 'source_control_type'}
     if not required.issubset(library) or library.guide.duplicated().any() or (library[list(required)] == '').any().any():
         raise ValueError('Complete unique authoritative guide catalogue required')
+    # A catalogue may come from a previous result bundle. Reuse design identity,
+    # never its population counts, selected-control flags or assay validations.
+    design = ['guide', 'id', 'read', 'pattern', 'sequence', 'feature_type',
+              'target_gene_id', 'target_gene_name', 'source_control_type']
+    library = library.loc[:, [name for name in design if name in library]].copy()
     if not set(library.source_control_type).issubset(TYPES):
         raise ValueError('Unrecognized source control role')
     negative = library.source_control_type.isin(TYPES[:2])
