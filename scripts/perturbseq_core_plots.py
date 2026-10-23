@@ -25,7 +25,7 @@ def technical_figures(all_obs,overlay,flow,output):
     total=len(all_obs);rna=int(all_obs.qc_pass_stage1.astype(bool).sum());single=int(all_obs.guide_status.astype(str).eq('single_guide').sum());both=int(all_obs.main_analysis_stage1.astype(bool).sum())
     values=[total,rna,single,both]
     axes[1].bar(np.arange(4),values,color=['#9ba6ac','#7e9eaf','#70998d','#3c7c9f'])
-    axes[1].set(xticks=np.arange(4),xticklabels=['All\nrecords','RNA QC\npass','Single guide\nbefore RNA QC','Both\nrequirements'],ylabel='Cell records',title='Intersecting requirements, not additive stages')
+    axes[1].set(xticks=np.arange(4),xticklabels=['All\nrecords','RNA QC\npass','Single guide\nbefore RNA QC','Both\nrequirements'],ylabel='Cell records',title='Intersecting requirements')
     for i,v in enumerate(values):axes[1].text(i,v,f'{v:,}',ha='center',va='bottom')
     save(fig,output/'figures/01_technical_qc.png')
 
@@ -34,7 +34,7 @@ def technical_figures(all_obs,overlay,flow,output):
         part=overlay.loc[overlay.source_control_type.eq(kind)];v=part.single_guide_after_stage1_qc.to_numpy()
         if not len(v):continue
         order=np.sort(v);axes[0].step(order,np.arange(1,len(v)+1)/len(v),where='post',color=COLORS[kind],label=f'{NAMES[kind]} ({len(v)})')
-    axes[0].set(xscale='symlog',xlabel='RNA-QC single-guide cells per guide (zeros kept)',ylabel='Fraction of library guides',title='Coverage by source annotation')
+    axes[0].set(xscale='symlog',xlabel='Cells per sgRNA',ylabel='Cumulative fraction',title='sgRNA coverage')
     axes[0].legend(frameon=False,fontsize=8)
     counts=[overlay.loc[overlay.source_control_type.eq(k),'single_guide_after_stage1_qc'].sum() for k in TYPES]
     zeros=[100*overlay.loc[overlay.source_control_type.eq(k),'single_guide_after_stage1_qc'].eq(0).mean() for k in TYPES]
@@ -58,7 +58,6 @@ def technical_figures(all_obs,overlay,flow,output):
     values=[100*cell.loc[cell.source_control_type.eq(k),'qc_pass_stage1'].astype(bool).mean() for k in TYPES]
     axes[1,2].bar(np.arange(4),values,color=[COLORS[k] for k in TYPES]);axes[1,2].set(xticks=np.arange(4),xticklabels=['NTC','Intergenic','Annotated\npositive','Other\ntargeting'],ylim=(0,100),ylabel='RNA-QC retained (%)',title='Within single-guide calls')
     for i,v in enumerate(values):axes[1,2].text(i,v,f'{v:.1f}%',ha='center',va='bottom')
-    fig.suptitle('Post-QC metrics; boxplot fliers omitted for display only; no new filtering')
     save(fig,output/'figures/03_four_type_cell_quality.png')
 
 
@@ -74,19 +73,19 @@ def effect_background_figures(records,effects,matched,metrics,examples,output):
         if not len(values):continue
         weights=np.where(np.isfinite(values),1/np.maximum(np.isfinite(values).sum(1),1)[:,None],0)
         hist,_=np.histogram(values[np.isfinite(values)],bins=edges,weights=weights[np.isfinite(values)])
-        axes[0].stairs(hist/(hist.sum()*np.diff(edges)),edges,color=COLORS[kind],label=f'{NAMES[kind]}: {int(use.sum())} guides')
+        label=f'{NAMES[kind]} ({int(use.sum())})'
+        axes[0].stairs(hist/(hist.sum()*np.diff(edges)),edges,color=COLORS[kind],label=label)
         rms=np.sort(medians.loc[records.loc[use,'guide']].to_numpy())
-        if len(rms)==1:axes[1].axvline(rms[0],color=COLORS[kind],ls=':',label=NAMES[kind]+' (one guide)')
-        else:axes[1].step(rms,np.arange(1,len(rms)+1)/len(rms),where='post',color=COLORS[kind],label=NAMES[kind])
+        if len(rms)==1:axes[1].axvline(rms[0],color=COLORS[kind],label=label)
+        else:axes[1].step(np.r_[rms[0],rms],np.r_[0,np.arange(1,len(rms)+1)/len(rms)],where='post',color=COLORS[kind],label=label)
         flattened=values[np.isfinite(values)]
         summaries.append(dict(source_control_type=kind,guides=int(use.sum()),matched_cells=int(metrics.cells.iloc[0]),
              median_signed_log2fc=float(np.median(flattened)),mad_signed_log2fc=float(np.median(np.abs(flattened-np.median(flattened)))),
              median_guide_rms_log2fc=float(np.median(rms)),maximum_guide_rms_log2fc=float(np.max(rms))))
-    axes[0].set(xlabel='RNA log2FC to nonoverlapping pure NTCs (+1 pseudocount)',ylabel='Guide-balanced RNA-feature density',title='First fixed equal-size subsample; full tails kept',yscale='symlog')
+    axes[0].set(xlabel='RNA log2FC',ylabel='Density',title='RNA expression changes',yscale='linear')
     axes[0].axvline(0,color='black',ls='--',lw=.8);axes[0].legend(frameon=False,fontsize=8)
-    axes[1].set(xlabel='Per-guide RMS RNA log2FC (median of fixed subsamples)',ylabel='Fraction of eligible guides',title='Descriptive magnitudes, not p-values',ylim=(0,1.02))
+    axes[1].set(xlabel='RMS RNA log2FC',ylabel='Cumulative fraction',title='RNA response magnitude',ylim=(0,1.02))
     axes[1].legend(frameon=False,fontsize=8)
-    fig.suptitle('Equal-size RNA responses; genes, guides and subsamples are not independent biological replicates')
     save(fig,output/'figures/05_matched_rna_effects.png')
     pd.DataFrame(summaries).to_csv(output/'tables/effect_background_summary.csv',index=False)
     rows=max(1,(len(examples)+1)//2)
@@ -104,6 +103,10 @@ def effect_background_figures(records,effects,matched,metrics,examples,output):
 
 def target_atlas(overlay,records,effects,support,pairs,output,max_cards=None,min_cells=10):
     import matplotlib.pyplot as plt
+    if max_cards == 0:
+        (output/'逐靶点支持图册.md').write_text('# 逐靶点图册未生成\n\n本次优先总体图表，没有生成逐靶点图片。\n\n[完整靶点表](tables/target_support.csv)与[逐guide响应](tables/guide_effect_metadata.csv)仍完整保留。\n', encoding='utf8')
+        pd.DataFrame(columns=['target','figure','source_control_type','assessment']).to_csv(output/'tables/target_figure_index.csv',index=False)
+        return []
     lookup={g:i for i,g in enumerate(records.guide)}
     cards=[]
     lines=['# 逐靶点多sgRNA支持图册','',

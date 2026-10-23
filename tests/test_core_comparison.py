@@ -108,6 +108,17 @@ def test_duplicate_count_source_is_not_another_chip(tmp_path):
         comparison.compare(sources)
 
 
+def test_merged_diagnostic_is_not_an_independent_chip(tmp_path):
+    spec=bundle(tmp_path/'merged','company_merged')
+    path=Path(spec['path'])/'summary.json'
+    summary=json.loads(path.read_text())
+    summary['input_scope']='company_merged_records_diagnostic'
+    path.write_text(json.dumps(summary))
+    spec=renew(Path(spec['path']),'company_merged')
+    with pytest.raises(ValueError,match='independent chip'):
+        comparison.read_bundle(spec)
+
+
 def test_duplicate_run_directory_rejected(tmp_path):
     path, cfg = config(tmp_path)
     cfg["inputs"][1]["path"] = cfg["inputs"][0]["path"]

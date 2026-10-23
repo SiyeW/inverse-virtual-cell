@@ -126,6 +126,46 @@ def test_zero_pair_targets_are_not_silently_dropped():
     assert 'pearson' in pairs and targets.assessment.eq('insufficient_two_guide_profiles').all()
 
 
+def test_overall_only_diagnostic_retains_scope_tables_and_valid_report(tmp_path):
+    path,config,counts,_,_,_=inputs(tmp_path,chip='company_merged')
+    config.update(max_target_cards=0, input_scope='company_merged_records_diagnostic',
+                  report_notice='公司合并矩阵的诊断；未确认六次捕获的细胞来源。')
+    path.write_text(json.dumps(config),encoding='utf8')
+    summary=run(path,smoke=True)
+    output=Path(config['output'])
+    assert summary['target_cards']==0 and summary['max_target_cards']==0
+    assert summary['input_scope']=='company_merged_records_diagnostic'
+    assert not list((output/'figures/targets').glob('*.png'))
+    assert len(pd.read_csv(output/'tables/target_support.csv'))==3
+    assert pd.read_csv(output/'tables/target_figure_index.csv').empty
+    assert config['report_notice'] in (output/'分析报告.md').read_text(encoding='utf8')
+    assert '未生成逐靶点图片' in (output/'分析报告.md').read_text(encoding='utf8')
+    assert verify_output(output)['accepted']
+
+
+@pytest.mark.parametrize('cards',[-1,True,1.5,'all'])
+def test_invalid_card_limit_is_rejected(tmp_path,cards):
+    path,config,*_=inputs(tmp_path)
+    config['max_target_cards']=cards
+    path.write_text(json.dumps(config),encoding='utf8')
+    with pytest.raises(ValueError,match='max_target_cards'):load_config(path)
+
+
+def test_merged_diagnostic_requires_visible_notice(tmp_path):
+    path,config,*_=inputs(tmp_path)
+    config['input_scope']='company_merged_records_diagnostic'
+    path.write_text(json.dumps(config),encoding='utf8')
+    with pytest.raises(ValueError,match='report_notice'):load_config(path)
+
+
+@pytest.mark.parametrize('notice',[None,'',' ',False,15])
+def test_merged_diagnostic_rejects_empty_or_nontext_notice(tmp_path,notice):
+    path,config,*_=inputs(tmp_path)
+    config.update(input_scope='company_merged_records_diagnostic',report_notice=notice)
+    path.write_text(json.dumps(config),encoding='utf8')
+    with pytest.raises(ValueError,match='report_notice'):load_config(path)
+
+
 def test_standalone_cli_has_no_legacy_import_dependency():
     code="import sys;sys.path.insert(0,'scripts');import run_core_analysis;assert not any(x.startswith(('run_chip01','chip01_','replogle2022','perturbation_statistics')) for x in sys.modules)"
     subprocess.run([sys.executable,'-c',code],cwd=ROOT,check=True,capture_output=True,text=True)

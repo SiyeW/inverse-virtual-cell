@@ -19,6 +19,8 @@
   "min_guide_cells": 10,
   "matched_cells": 10,
   "matched_repeats": 8,
+  "max_target_cards": null,
+  "input_scope": "independent_capture",
   "pseudocount": 1,
   "seed": 20261022,
   "threads": 2,

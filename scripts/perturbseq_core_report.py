@@ -18,9 +18,13 @@ def write_report(output, summary, roles, support, pairs):
     values = pairs.pearson.dropna() if 'pearson' in pairs else pd.Series(dtype=float)
     median = f'{values.median():.4f}' if len(values) else '未定义（没有有效guide对）'
     flag = '**工程前缀测试，不作为本芯片科学结果。**\n\n' if not s['scientific_result'] else ''
+    notice = ('**数据范围：** '+s['report_notice']+'\n\n') if s.get('report_notice') else ''
+    atlas_note = ('本次仅生成总体图表，未生成逐靶点图片；全部靶点及未评价原因仍保留在[完整靶点表](tables/target_support.csv)。'
+                  if s.get('max_target_cards') == 0 else
+                  '[逐靶点支持图册](逐靶点支持图册.md)按靶点顺序展示可评估项目；完整覆盖见[靶点表](tables/target_support.csv)。')
     text = f'''# {s['chip_id']}：核心质控与RNA响应分析
 
-{flag}本报告保留完整细胞分母、零覆盖guide和未评价靶点。它描述实验覆盖、细胞质量及RNA响应，不输出已经验证的功能命中。
+{flag}{notice}本报告保留完整细胞分母、零覆盖guide和未评价靶点。它描述实验覆盖、细胞质量及RNA响应，不输出已经验证的功能命中。
 
 ## 1. 细胞与guide分配
 
@@ -69,7 +73,7 @@ RNA log2FC = log2((guide组归一化均值+1)/(NTC参考均值+1))。参考采�
 全部{s['targets']}个靶点中，{s['targets_assessable']}个具备可描述的多guide响应，余下保留具体未评价原因。有效guide对的RNA log2FC相关中位数为{median}。
 相关性衡量不同guide的RNA响应是否相似，不把同一芯片的guide当生物学重复，也不将低相关或覆盖不足直接解释为靶点无功能。
 
-[逐靶点支持图册](逐靶点支持图册.md)按全部靶点名称顺序编号，展示全部可评估靶点和标注正控；未出图的靶点仍在[完整靶点表](tables/target_support.csv)。图册散点使用细胞最多的两条合格guide，相关矩阵对角线只是自身相关，不能作为重复验证。去掉最大guide后的结果是依赖性敏感性检查，不是独立重复。
+右图每个点是一个靶点，纵轴为其guide对响应相关的中位数。{atlas_note} 图册启用时，散点使用细胞最多的两条合格guide；相关矩阵对角线只是自身相关，不能作为重复验证。去掉最大guide后的结果是依赖性敏感性检查，不是独立重复。评价低相关还需要结合同guide不同细胞组的抽样稳定性，不能只据此判定实验或guide失败。
 
 ## 7. 讨论与当前能回答的问题
 

@@ -79,6 +79,17 @@ def load_config(path):
     if config.get('pseudocount', 1) != 1:
         raise ValueError('This workflow fixes the RNA pseudocount at 1')
     config['pseudocount'] = 1.
+    cards = config.get('max_target_cards')
+    if cards is not None and (isinstance(cards, bool) or not isinstance(cards, int) or cards < 0):
+        raise ValueError('max_target_cards must be null or a nonnegative integer')
+    config['max_target_cards'] = cards
+    scope = config.get('input_scope', 'independent_capture')
+    if scope not in ['independent_capture', 'company_merged_records_diagnostic']:
+        raise ValueError('Unknown input_scope')
+    notice = config.get('report_notice', '')
+    if scope == 'company_merged_records_diagnostic' and (not isinstance(notice, str) or not notice.strip()):
+        raise ValueError('Merged diagnostic input requires an explicit report_notice')
+    config['input_scope'] = scope
     return config
 
 

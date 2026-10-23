@@ -49,6 +49,8 @@ def read_bundle(spec, smoke=False):
         if path.stat().st_size != proof["bytes"] or sha256(path) != proof["sha256"]:
             raise ValueError("Input payload differs: " + rel)
     summary = read_json(root / "summary.json")
+    if summary.get("input_scope", "independent_capture") != "independent_capture":
+        raise ValueError("Merged diagnostic records cannot be used as an independent chip")
     if summary.get("scientific_result") is not True and not smoke:
         raise ValueError("Engineering input cannot produce a scientific comparison")
     if summary.get("chip_id", spec["chip_id"]) != spec["chip_id"]:

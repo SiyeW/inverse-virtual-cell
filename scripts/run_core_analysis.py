@@ -71,13 +71,20 @@ def agreement_figure(support, pairs, output):
     fig, axes = plt.subplots(1, 2, figsize=(12, 4), layout='constrained')
     bins = [int(support.eligible_guides.eq(i).sum()) for i in range(3)] + [int(support.eligible_guides.ge(3).sum())]
     axes[0].bar(['0', '1', '2', '3+'], bins, color='#3c7c9f')
-    axes[0].set(xlabel='Eligible guides per target', ylabel='All library targets', title='Unassessed targets remain in the denominator')
-    values = pairs.pearson.dropna().to_numpy() if 'pearson' in pairs else []
-    if len(values):
-        axes[1].hist(values, bins=np.linspace(-1, 1, 41), color='#3c7c9f')
+    axes[0].set(xlabel='Eligible sgRNAs per target', ylabel='Targets', title='Target coverage')
+    shown = 0
+    for role in ['positive_control', 'targeting']:
+        part = support.loc[support.source_control_type.eq(role) & support.assessment.eq('descriptive_assessable')]
+        if len(part):
+            axes[1].scatter(part.largest_guide_fraction, part.median_pair_r, s=24, alpha=.7,
+                            color=COLORS[role], label=NAMES[role])
+            shown += len(part)
+    axes[1].axhline(0, color='grey', lw=.8)
+    if shown:
+        axes[1].legend(frameon=False, fontsize=8)
     else:
-        axes[1].text(.5, .5, 'No defined guide pair correlation', ha='center', transform=axes[1].transAxes)
-    axes[1].set(xlim=(-1, 1), xlabel='Within-target RNA log2FC Pearson r', ylabel='Guide pairs', title='Descriptive agreement; not biological replication')
+        axes[1].text(.5, .5, 'No assessable targets', ha='center', transform=axes[1].transAxes)
+    axes[1].set(xlabel='Largest sgRNA cell fraction', ylabel='Median Pearson r', title='RNA-response agreement')
     save(fig, output/'figures/07_target_support.png')
 
 
@@ -220,7 +227,8 @@ def run(config_path, smoke=False):
             support.to_csv(out/'tables/target_support.csv', index=False)
             pairs.to_csv(out/'tables/within_target_pairs.csv', index=False)
             agreement_figure(support, pairs, out)
-            cards = target_atlas(overlay, records, effects, support, pairs, out, min_cells=config['min_guide_cells'])
+            cards = target_atlas(overlay, records, effects, support, pairs, out,
+                                 max_cards=config['max_target_cards'], min_cells=config['min_guide_cells'])
         if identity(config['source']['path']) != {k: source_identity[k] for k in ['bytes','mtime_ns','device','inode']}:
             raise ValueError('Source identity changed; preserve the run, no automatic retry')
         for spec in [config['catalogue']] + ([config['features']] if config['features']['mode']=='frozen_ids' else []):
@@ -234,6 +242,8 @@ def run(config_path, smoke=False):
             eligible_guides=len(records), targets=len(support), target_cards=len(cards),
             targets_assessable=int(support.assessment.eq('descriptive_assessable').sum()) if len(support) else 0,
             matched_cells=config['matched_cells'], matched_repeats=config['matched_repeats'],
+            input_scope=config['input_scope'], report_notice=config.get('report_notice', ''),
+            max_target_cards=config['max_target_cards'],
             validated_functional_hits=False, inferential_de='not_run', dna_editing_efficiency='not_assessed',
             candidate_positive_control_expected_phenotype='not established by source annotation',
             versions={p:md.version(p) for p in ['numpy','pandas','scipy','anndata','h5py','matplotlib']},
