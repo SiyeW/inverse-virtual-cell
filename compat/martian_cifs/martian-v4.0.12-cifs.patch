@@ -1,0 +1,284 @@
+diff --git a/martian/core/cifs_publish.go b/martian/core/cifs_publish.go
+new file mode 100644
+index 0000000..8e5982a
+--- /dev/null
++++ b/martian/core/cifs_publish.go
+@@ -0,0 +1,131 @@
++// Opt-in experimental output publication. Scientific stages are unchanged.
++package core
++
++import (
++	"bytes"
++	"crypto/sha256"
++	"encoding/json"
++	"fmt"
++	"io"
++	"os"
++	"path/filepath"
++	"strings"
++
++	"github.com/martian-lang/martian/martian/syntax"
++)
++
++func cifsCompatEnabled() bool { return os.Getenv("MRO_CIFS_COMPAT") == "1" }
++
++func cifsFileHash(p string) ([32]byte, error) {
++	f, err := os.Open(p)
++	if err != nil {
++		return [32]byte{}, err
++	}
++	defer f.Close()
++	h := sha256.New()
++	_, err = io.Copy(h, f)
++	var out [32]byte
++	copy(out[:], h.Sum(nil))
++	return out, err
++}
++
++// Publish another name without moving or modifying the original. Directories
++// are ordinary directories containing hard links to regular files. Unsupported
++// links, special files, or unequal existing content fail rather than copying
++// unbounded data or waiving a collision. Retrying publication is idempotent.
++func cifsPublish(src, dst string) error {
++	info, err := os.Lstat(src)
++	if err != nil {
++		return err
++	}
++	if info.Mode()&os.ModeSymlink != 0 {
++		return fmt.Errorf("CIFS publication refuses symlink output: %s", src)
++	}
++	if filepath.Clean(src) == filepath.Clean(dst) {
++		return nil
++	}
++	if d, err := os.Lstat(dst); err == nil && d.Mode()&os.ModeSymlink != 0 {
++		return fmt.Errorf("CIFS publication refuses symlink destination: %s", dst)
++	}
++	if info.IsDir() {
++		if d, err := os.Lstat(dst); err == nil && !d.IsDir() {
++			return fmt.Errorf("output directory collision: %s", dst)
++		}
++		if err := os.MkdirAll(dst, 0775); err != nil {
++			return err
++		}
++		entries, err := os.ReadDir(src)
++		if err != nil {
++			return err
++		}
++		for _, e := range entries {
++			if err := cifsPublish(filepath.Join(src, e.Name()), filepath.Join(dst, e.Name())); err != nil {
++				return err
++			}
++		}
++		return nil
++	}
++	if !info.Mode().IsRegular() {
++		return fmt.Errorf("CIFS publication refuses non-regular output: %s", src)
++	}
++	if d, err := os.Lstat(dst); err == nil {
++		if !d.Mode().IsRegular() || info.Size() != d.Size() {
++			return fmt.Errorf("output collision: %s", dst)
++		}
++		a, err := cifsFileHash(src)
++		if err != nil {
++			return err
++		}
++		b, err := cifsFileHash(dst)
++		if err != nil {
++			return err
++		}
++		if a != b {
++			return fmt.Errorf("output content mismatch: %s", dst)
++		}
++		return nil
++	} else if !os.IsNotExist(err) {
++		return err
++	}
++	if err := os.Link(src, dst); err != nil {
++		return fmt.Errorf("CIFS publication requires a same-filesystem hard link: %w", err)
++	}
++	return nil
++}
++
++func cifsMoveOutFile(w *bytes.Buffer, param *syntax.StructMember, value json.RawMessage,
++	pipestancePath, outsPath string) error {
++	var src string
++	if err := json.Unmarshal(value, &src); err != nil {
++		return err
++	}
++	if src == "" {
++		_, err := w.Write(nullBytes)
++		return err
++	}
++	root, err := filepath.Abs(pipestancePath)
++	if err != nil {
++		return err
++	}
++	abs, err := filepath.Abs(src)
++	if err != nil {
++		return err
++	}
++	rel, err := filepath.Rel(root, abs)
++	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
++		return fmt.Errorf("CIFS mode refuses publishing an external output: %s", src)
++	}
++	if err := os.MkdirAll(outsPath, 0775); err != nil {
++		return err
++	}
++	dst := filepath.Join(outsPath, param.GetOutFilename())
++	if err := cifsPublish(src, dst); err != nil {
++		return err
++	}
++	b, err := json.Marshal(dst)
++	if err != nil {
++		return err
++	}
++	_, err = w.Write(b)
++	return err
++}
+diff --git a/martian/core/cifs_publish_test.go b/martian/core/cifs_publish_test.go
+new file mode 100644
+index 0000000..c7a6196
+--- /dev/null
++++ b/martian/core/cifs_publish_test.go
+@@ -0,0 +1,127 @@
++package core
++
++import (
++	"bytes"
++	"encoding/json"
++	"os"
++	"path/filepath"
++	"testing"
++
++	"github.com/martian-lang/martian/martian/syntax"
++)
++
++func TestCifsPublicationFile(t *testing.T) {
++	root := t.TempDir()
++	src := filepath.Join(root, "stage.txt")
++	dst := filepath.Join(root, "out.txt")
++	if err := os.WriteFile(src, []byte("accepted-content"), 0600); err != nil {
++		t.Fatal(err)
++	}
++	if err := cifsPublish(src, dst); err != nil {
++		t.Fatal(err)
++	}
++	b, _ := os.Lstat(dst)
++	if !b.Mode().IsRegular() {
++		t.Fatal("published name is not regular")
++	}
++	if err := cifsPublish(src, dst); err != nil {
++		t.Fatal("repeat publication", err)
++	}
++	assertCifsSharedContent(t,src,dst)
++	if err := os.Remove(src); err != nil {
++		t.Fatal(err)
++	}
++	if got, err := os.ReadFile(dst); err != nil || string(got) != "shared-inode-behavior" {
++		t.Fatal("published content did not survive source cleanup")
++	}
++}
++
++func TestCifsPublicationCollision(t *testing.T) {
++	root := t.TempDir()
++	src := filepath.Join(root, "src")
++	dst := filepath.Join(root, "dst")
++	os.WriteFile(src, []byte("aa"), 0600)
++	os.WriteFile(dst, []byte("bb"), 0600)
++	if err := cifsPublish(src, dst); err == nil {
++		t.Fatal("unequal existing output accepted")
++	}
++	got, _ := os.ReadFile(dst)
++	if string(got) != "bb" {
++		t.Fatal("collision overwritten")
++	}
++}
++
++func TestCifsPublicationDirectory(t *testing.T) {
++	root := t.TempDir()
++	src := filepath.Join(root, "src")
++	dst := filepath.Join(root, "dst")
++	os.MkdirAll(filepath.Join(src, "nested"), 0700)
++	os.WriteFile(filepath.Join(src, "nested", "a"), []byte("directory output"), 0600)
++	if err := cifsPublish(src, dst); err != nil {
++		t.Fatal(err)
++	}
++	if err := cifsPublish(src, dst); err != nil {
++		t.Fatal(err)
++	}
++	assertCifsSharedContent(t,filepath.Join(src,"nested","a"),filepath.Join(dst,"nested","a"))
++}
++
++// CIFS can synthesize different inode numbers for aliases. Test the observable
++// hard-link semantics on disposable bytes, not a client inode-number heuristic.
++func assertCifsSharedContent(t *testing.T,src,dst string) {
++	t.Helper()
++	f,err:=os.OpenFile(src,os.O_WRONLY|os.O_TRUNC,0600);if err!=nil{t.Fatal(err)}
++	if _,err=f.Write([]byte("shared-inode-behavior"));err!=nil{t.Fatal(err)}
++	if err=f.Sync();err!=nil{t.Fatal(err)}
++	if err=f.Close();err!=nil{t.Fatal(err)}
++	if got,err:=os.ReadFile(dst);err!=nil||string(got)!="shared-inode-behavior"{t.Fatalf("aliases do not share contents: %q, %v",got,err)}
++}
++
++func TestCifsPublicationRejectSymlinks(t *testing.T) {
++	root := t.TempDir()
++	src := filepath.Join(root, "src")
++	link := filepath.Join(root, "link")
++	os.WriteFile(src, []byte("safe"), 0600)
++	if err := os.Symlink(src, link); err != nil {
++		t.Skip(err)
++	}
++	if err := cifsPublish(link, filepath.Join(root, "dst")); err == nil {
++		t.Fatal("symlink source accepted")
++	}
++	if err := cifsPublish(src, link); err == nil {
++		t.Fatal("symlink destination accepted")
++	}
++}
++
++func TestCifsPublicationExternalPath(t *testing.T) {
++	root := t.TempDir()
++	sibling := root + "-outside"
++	os.WriteFile(sibling, []byte("outside"), 0600)
++	t.Cleanup(func() { os.Remove(sibling) })
++	v, _ := json.Marshal(sibling)
++	var w bytes.Buffer
++	if err := cifsMoveOutFile(&w, &syntax.StructMember{Id: "result"}, v, root, filepath.Join(root, "outs")); err == nil {
++		t.Fatal("sibling prefix accepted as inside")
++	}
++}
++
++func TestCifsPublicationNull(t *testing.T) {
++	var w bytes.Buffer
++	if err := cifsMoveOutFile(&w, &syntax.StructMember{}, json.RawMessage(`null`), t.TempDir(), "unused"); err != nil {
++		t.Fatal(err)
++	}
++	if w.String() != "null" {
++		t.Fatal(w.String())
++	}
++}
++
++func TestCifsPublicationOptIn(t *testing.T) {
++	t.Setenv("MRO_CIFS_COMPAT", "")
++	if cifsCompatEnabled() {
++		t.Fatal("enabled by default")
++	}
++	t.Setenv("MRO_CIFS_COMPAT", "1")
++	if !cifsCompatEnabled() {
++		t.Fatal("opt-in not enabled")
++	}
++}
+diff --git a/martian/core/post_process.go b/martian/core/post_process.go
+index d017e64..3050ca8 100644
+--- a/martian/core/post_process.go
++++ b/martian/core/post_process.go
+@@ -393,6 +393,9 @@ func moveOutArrayDir(w *bytes.Buffer, value json.RawMessage,
+ // Move files to the top-level pipestance outs directory.
+ func moveOutFile(w *bytes.Buffer, param *syntax.StructMember,
+ 	value json.RawMessage, pipestancePath, outsPath string) error {
++	if cifsCompatEnabled() {
++		return cifsMoveOutFile(w, param, value, pipestancePath, outsPath)
++	}
+ 	var filePath string
+ 	if err := json.Unmarshal(value, &filePath); err != nil {
+ 		if _, err := w.Write(value); err != nil {
