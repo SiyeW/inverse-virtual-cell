@@ -5,6 +5,7 @@
 | 用途 | 入口 |
 |---|---|
 | 多芯片目录/输入回执/前置检查及无BAM配置，绝不启动作业 | `manage_core_study.py init / check / render-cellranger`，见[运行与查证](../docs/CORE_STUDY_OPERATIONS.md) |
+| sgRNA计数定义与可选靶点表达标注分开，保留原始靶点/对照身份 | `prepare_guide_counting_reference.py`，见[输入契约](../docs/GUIDE_COUNTING_REFERENCE.md)；不改RNA参考或把缺失靶点改成NTC |
 | 10x完整输入→全细胞原始counts与RNA QC | `run_core_analysis.py prepare`（调用`analyze_guide_capture_qc.py`） |
 | 四类覆盖/细胞质量、NTC RNA效应、等n比较、多guide支持及报告 | `run_core_analysis.py run` |
 | 已有核心结果只读验收，不重跑 | `run_core_analysis.py verify` |
