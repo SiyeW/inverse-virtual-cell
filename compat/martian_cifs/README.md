@@ -65,6 +65,18 @@ output hashes, and the independent software view before execution. It never
 regenerates prefixes or reads full original FASTQs. Success additionally requires
 exact matrix arrays, guide calls, feature definitions, QC and output coverage.
 
+The optional report overlay changes only the attachment copy policy: verified
+contents inherit destination-filesystem permissions rather than copying a local
+mode onto CIFS. `adapt_report.py` is a narrow, source-hash-gated transformer.
+Vendor source and its generated derivative stay in the internal installation;
+they are not redistributed here. Cell Ranger's own internal-use license is
+distinct from Martian's MIT license. The original vendor files are preserved.
+
+The explicit `--resume-report-only` option is limited to the diagnosed failed
+100k-prefix reporting step. It archives prior evidence with hashes, requires the
+same invocation and stops if counting/guide assignment unexpectedly runs again.
+It is not a general recovery entrypoint for production runs.
+
 Never enable automatic recovery of a real failed analysis as part of this test.
 Do not modify shared mounts, permissions, original FASTQ/BAM, previous outputs,
 or the installed vendor package. Record runtime, shim, inputs and outputs with

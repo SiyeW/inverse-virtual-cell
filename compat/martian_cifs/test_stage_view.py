@@ -2,6 +2,7 @@ import importlib.util
 from pathlib import Path
 import pytest
 import json
+import hashlib
 
 spec=importlib.util.spec_from_file_location('stage_view',Path(__file__).with_name('stage_view.py'))
 module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
@@ -38,3 +39,13 @@ def test_existing_target_refused(tmp_path):
 def test_nested_source_refused(tmp_path):
     src,runtime,shim=fixture(tmp_path)
     with pytest.raises(ValueError):module.stage(src,runtime,src/'view',shim)
+
+def test_report_overlay_is_independent(tmp_path):
+    src,runtime,shim=fixture(tmp_path);report=src/module.REPORT_PATH;report.parent.mkdir(parents=True)
+    source=b'import shutil\n\ndef main(args, outs):\n    shutil.copy(args.feature_reference, outs.feature_reference)\n'
+    report.write_bytes(source);helper=tmp_path/'helper.py';helper.write_text('def checked_copy(a,b): pass\n')
+    out=tmp_path/'view';module.stage(src,runtime,out,shim,helper,hashlib.sha256(source).hexdigest())
+    assert report.read_bytes()==source
+    assert b'cifs_content_copy.checked_copy' in (out/module.REPORT_PATH).read_bytes()
+    assert not (out/module.REPORT_PATH).is_symlink()
+    assert json.loads((out/'.env.json').read_text())['envs'][-1]=={'key':'PYTHONPATH','type':'path_prepend','value':'compat'}

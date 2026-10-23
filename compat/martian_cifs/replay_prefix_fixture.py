@@ -21,13 +21,29 @@ def validate_recipe(status,receipt,rows):
     expected=[dict(fastqs=x['fastq_dir'],sample=x['fastq_id'],library_type=x['feature_type']) for x in libs]
     if rows!=expected:raise ValueError('Libraries CSV does not point exclusively to accepted prefixes')
 
-def run(baseline,target,tool):
+def run(baseline,target,tool,resume_report=False):
     baseline=baseline.resolve(strict=True);target=target.absolute();tool=tool.resolve(strict=True)
-    if target.exists() or target.is_symlink() or 'provenance' not in target.parts:
+    if (target.exists() and not resume_report) or target.is_symlink() or 'provenance' not in target.parts:
         raise ValueError('Unused project provenance target required')
+    previous=None
+    if resume_report:
+        previous=json.loads((target/'status.json').read_text())
+        if previous.get('stage')!='failed_preserved' or previous.get('scientific_result') is not False or previous.get('forced_cells')!=10 or previous.get('original_fastq_bytes_read')!=0:
+            raise ValueError('Only the failed bounded engineering report can resume')
+        if (target/'owner.lock').exists():raise ValueError('Prior controller lock remains')
+        if previous.get('uid')!=os.getuid():raise ValueError('Prior test owner differs')
+        for pid in [previous.get('pid'),previous.get('pipeline_pid')]:
+            if not isinstance(pid,int) or pid<=1:raise ValueError('Missing prior owned process identity')
+            try:os.kill(pid,0)
+            except ProcessLookupError:pass
+            else:raise ValueError('Prior process ID is still occupied; inspect before resuming')
+        failed=target/'count/SC_RNA_COUNTER_CS/SC_MULTI_CORE/MULTI_REPORTER/SUMMARIZE_REPORTS/fork0/chnk0/_errors'
+        reason=failed.read_text()
+        if 'PermissionError' not in reason or 'shutil.copy(args.feature_reference' not in reason:
+            raise ValueError('Not the diagnosed report-copy failure')
     view=json.loads((tool/'compat_view.json').read_text())
     for item in view['files']:
-        if item['kind'] in ['verified_copy','fixed_loader_config'] and digest(tool/item['path'])!=item['sha256']:
+        if item['kind'] in ['verified_copy','fixed_loader_config','local_only_report_copy_policy'] and digest(tool/item['path'])!=item['sha256']:
             raise ValueError('Frozen compatibility software differs')
     status=json.loads((baseline/'chip02_prefix_status.json').read_text())
     receipt=json.loads((baseline/'chip02_prefix_100k/prefix_receipt.json').read_text())
@@ -59,24 +75,43 @@ def run(baseline,target,tool):
     if digest(feature)!=accepted['outputs']['feature_reference.csv']['sha256']:raise ValueError('Guide reference changed')
     available=int(next(x for x in Path('/proc/meminfo').read_text().splitlines() if x.startswith('MemAvailable:')).split()[1])*1024
     if available<64*1024**3:raise ValueError('Insufficient shared memory headroom')
-    target.mkdir();output=target/'count';argv[0]=str(tool/'cellranger');argv[argv.index('--output-dir')+1]=str(output)
+    output=target/'count';argv[0]=str(tool/'cellranger');argv[argv.index('--output-dir')+1]=str(output)
+    backup_receipts=[]
+    if resume_report:
+        if argv[1:]!=previous['argv'][1:]:raise ValueError('Frozen prefix invocation differs')
+        backup=target/'before_report_resume';backup.mkdir()
+        for relative in ['status.json','count.stdout','count.stderr','count/_log','count/_versions','count/_invocation','count/_mrosource','count/count.mri.tgz']:
+            src=target/relative
+            if not src.exists():continue
+            if src.stat().st_size>2_000_000:raise ValueError('Unexpected diagnostic size')
+            dst=backup/relative;dst.parent.mkdir(parents=True,exist_ok=True)
+            h=digest(src);shutil.copyfile(src,dst)
+            if digest(dst)!=h:raise ValueError('Failure archive copy differs')
+            backup_receipts.append(dict(path=relative,sha256=h))
+    else:target.mkdir()
     env=dict(os.environ,MRO_UNIQUIFIED_DIRECTORIES='disable',MRO_CIFS_COMPAT='1',MRO_CIFS_SAME_MODE_ROOT=str(target))
     command=[sys.executable,str(Path(copy_fallback.__file__)),'--']+argv
     rec=dict(stage='running_prefix_count',pid=os.getpid(),uid=os.getuid(),argv=argv,scientific_result=False,original_fastq_bytes_read=0,prefix_bytes_verified=total,forced_cells=10,
              helper_sha256=digest(Path(__file__)),software_view_sha256=digest(tool/'compat_view.json'),
              prefix_receipt_sha256=digest(baseline/'chip02_prefix_100k/prefix_receipt.json'),
              reference_receipt_sha256=digest(baseline/'reference_content_receipt.json'))
+    rec.update(resume_reporting_only=resume_report,failure_archive=backup_receipts)
     start=time.monotonic();proc=None
     with (target/'owner.lock').open('x') as f:json.dump(rec,f)
     def save():
         rec['elapsed_seconds']=time.monotonic()-start
         temp=target/'status.tmp';temp.write_text(json.dumps(rec,indent=2)+'\n');temp.replace(target/'status.json')
     try:
-        with (target/'count.stdout').open('w') as out,(target/'count.stderr').open('w') as err:
+        log_name='report_resume' if resume_report else 'count'
+        with (target/(log_name+'.stdout')).open('w') as out,(target/(log_name+'.stderr')).open('w') as err:
             proc=subprocess.Popen(command,cwd=target,env=env,stdout=out,stderr=err,start_new_session=True)
             rec['pipeline_pid']=proc.pid;save()
             while proc.poll() is None:
                 if time.monotonic()-start>1800 or shutil.disk_usage(target).free<20_000_000_000:raise RuntimeError('Test budget reached')
+                if resume_report:
+                    lines=(target/(log_name+'.stdout')).read_text().splitlines()
+                    if any('(run:local)' in x and ('ALIGN_AND_COUNT' in x or 'CALL_PROTOSPACERS' in x) for x in lines):
+                        raise RuntimeError('Unexpected repeated counting stage; preserve and stop')
                 time.sleep(5);save()
         if proc.returncode:raise RuntimeError('Prefix replay failed; preserve without automatic retry')
         if 'Could not move output files' in (output/'_log').read_text():raise ValueError('Publication error')
@@ -101,6 +136,7 @@ def run(baseline,target,tool):
 
 def main():
     p=argparse.ArgumentParser();p.add_argument('--baseline',type=Path,required=True);p.add_argument('--target',type=Path,required=True);p.add_argument('--tool',type=Path,required=True)
-    a=p.parse_args();run(a.baseline,a.target,a.tool)
+    p.add_argument('--resume-report-only',action='store_true')
+    a=p.parse_args();run(a.baseline,a.target,a.tool,a.resume_report_only)
 
 if __name__=='__main__':main()
