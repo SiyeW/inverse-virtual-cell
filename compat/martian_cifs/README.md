@@ -17,11 +17,18 @@ installations and scientific attempts must remain unchanged.
   It first calls the real operation. Only EPERM/EACCES, an exact match between
   current and requested permission bits, a CIFS descriptor, and a path beneath
   `MRO_CIFS_SAME_MODE_ROOT` permit the already-satisfied operation to succeed.
-  It never grants permissions or accepts a requested mode change. `LD_PRELOAD`
-  must be set for the owned run only, not in a shell profile/system setting.
+  It never grants permissions or accepts a requested mode change. The original
+  launcher clears inherited `LD_PRELOAD`. The isolated view sets its private
+  `.env.json` to the hash-verified shim inside that view, not to a caller-selected
+  library. No shell profile or system loader configuration is changed.
 - `stage_view.py` creates an unused native software-only view. It hash-verifies
   independent copies of the original launcher and candidate runtime and
   references unchanged installed components. This is not a large-data workspace.
+- `copy_fallback.py` restricts only the owned process tree: the Linux x86_64
+  `copy_file_range` syscall returns ENOSYS, selecting the existing ordinary
+  read/write fallback. This addresses an observed CIFS EIO from that optional
+  optimization. All other syscalls are unchanged; no system policy or mount is
+  modified, and privileges cannot be gained in the child tree.
 
 ## Build and tests
 
