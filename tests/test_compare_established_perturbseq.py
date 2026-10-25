@@ -61,6 +61,24 @@ def test_zero_variance_not_fabricated_correlation():
     assert m.pearson(np.arange(4),-np.arange(4))==pytest.approx(-1)
 
 
+def test_background_cannot_borrow_closer_positive_controls():
+    full=pd.DataFrame(dict(group=['A','B','P','Q'],target=['a','b','p','q'],
+                           cells=[35,40,30,30],role=['targeting','targeting','positive_control','positive_control']))
+    same=[dict(a='x',b='y',n_a=30,n_b=30,role='targeting')]
+    got=m.matched_background_pairs(full,same,[(0,1),(2,3),(0,2)],pool_limit=1)
+    assert got[0][0].tolist()==[0,1]
+    with pytest.raises(ValueError,match='role-matched'):
+        m.matched_background_pairs(full,same,[(2,3),(0,2)])
+
+
+def test_background_coverage_matching_is_deterministic_and_role_specific():
+    full=pd.DataFrame(dict(group=list('ABCDEF'),target=list('abcdef'),
+                           cells=[20,20,100,100,21,21],role=['targeting']*4+['positive_control']*2))
+    same=[dict(a='x',b='y',n_a=99,n_b=102,role='targeting')]
+    got=m.matched_background_pairs(full,same,[(0,1),(2,3),(4,5)])
+    assert got[0][0].tolist()==[2,3]
+
+
 def test_10x_adapter_reorders_cells_and_excludes_guide_counts(tmp_path):
     # Last row is guide capture and must not enter RNA library-size normalization.
     raw=sparse.csc_matrix(np.array([[1,2,3],[4,0,6],[0,7,1],[100,100,100]],dtype=np.int64))

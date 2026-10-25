@@ -253,6 +253,27 @@ def group_sets(cells, seed):
     return guide_groups, half_groups, target_groups
 
 
+def matched_background_pairs(full, same, candidates, pool_limit=4000, seed=731):
+    """Match coverage within the same design role; never substitute positives."""
+    candidates=np.asarray(candidates,dtype=int).reshape(-1,2)
+    output=[]
+    for role in sorted({p['role'] for p in same}):
+        roles=full.role.to_numpy()
+        eligible=candidates[(roles[candidates[:,0]]==role)&(roles[candidates[:,1]]==role)]
+        if not len(eligible):
+            raise ValueError('No role-matched different-target pair for '+role)
+        role_seed=int.from_bytes(hashlib.sha256(role.encode()).digest()[:4],'little')
+        rng=np.random.default_rng(np.random.SeedSequence([seed,role_seed]))
+        pool=eligible[rng.choice(len(eligible),min(pool_limit,len(eligible)),replace=False)]
+        sizes=np.sort(np.log(full.cells.to_numpy()[pool]),axis=1)
+        for pair in same:
+            if pair['role']!=role:continue
+            wanted=np.sort(np.log([pair['n_a'],pair['n_b']]))
+            best=int(np.argmin(np.square(sizes-wanted).sum(1)))
+            output.append((pool[best],pair))
+    return output
+
+
 def evaluate(method, matrix, cells, genes, groups, mode, sd, feature_ids):
     ntc = cells.role.eq('non_targeting_control').to_numpy()
     guides = cells.guide_id.to_numpy()
@@ -285,21 +306,11 @@ def evaluate(method, matrix, cells, genes, groups, mode, sd, feature_ids):
                 same.append(dict(a=a.group,b=b.group,target=a.target,role=a.role,r=pearson(effect[i],effect[j],mask),n_a=int(a.cells),n_b=int(b.cells)))
             else:
                 candidates.append((i,j))
-    # Fixed seeded candidate pool; match log cell counts without looking at effects.
-    rng = np.random.default_rng(731)
-    candidates = np.asarray(candidates)
-    if len(candidates):
-        selected = rng.choice(len(candidates), min(4000,len(candidates)), replace=False)
-        pool=candidates[selected]
-        pool_sizes=np.sort(np.log(full.cells.to_numpy()[pool]),axis=1)
-        selected_matches=[]
-        for pair in same:
-            wanted=np.sort(np.log([pair['n_a'],pair['n_b']]))
-            best=int(np.argmin(np.square(pool_sizes-wanted).sum(1)))
-            selected_matches.append((pool[best],pair))
-        for (i,j),matched in selected_matches:
+    # Fixed role-matched pool and log coverage; no selection on response values.
+    if same:
+        for (i,j),matched in matched_background_pairs(full,same,candidates):
             a,b = full.iloc[i],full.iloc[j]
-            unrelated.append(dict(a=a.group,b=b.group,r=pearson(effect[i],effect[j],masks[a.target]&masks[b.target]),n_a=int(a.cells),n_b=int(b.cells),matched_to_a=matched['a'],matched_to_b=matched['b']))
+            unrelated.append(dict(a=a.group,b=b.group,role=a.role,r=pearson(effect[i],effect[j],masks[a.target]&masks[b.target]),n_a=int(a.cells),n_b=int(b.cells),matched_to_a=matched['a'],matched_to_b=matched['b']))
     half, half_effect = frames[1]
     repeat = []
     for i in range(0,len(half),2):
