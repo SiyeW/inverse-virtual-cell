@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'scripts'))
-from audit_rna_response_correlations import BudgetReader, calculate, corr, matched_other, run
+from audit_rna_response_correlations import BudgetReader, calculate, corr, matched_other, run, prefix_array, run_example
 
 
 def fixture():
@@ -72,6 +72,17 @@ def test_io_budget_and_deadline_fail_without_unbounded_read():
     with pytest.raises(TimeoutError):reader.read(1)
 
 
+def test_prefix_reader_consumes_only_requested_numeric_rows():
+    import zipfile
+    values=np.arange(1200,dtype=float).reshape(100,12)
+    payload=io.BytesIO();np.savez_compressed(payload,means=values)
+    payload.seek(0)
+    with zipfile.ZipFile(payload) as archive:
+        prefix,shape=prefix_array(archive,'means',3)
+    assert shape==(100,12)
+    np.testing.assert_array_equal(prefix,values[:3])
+
+
 def test_accepted_fixture_end_to_end_no_source_or_output_overwrite(tmp_path):
     records,pairs,means,effects,guides,genes=fixture()
     core=tmp_path/'core';(core/'tables').mkdir(parents=True)
@@ -87,3 +98,22 @@ def test_accepted_fixture_end_to_end_no_source_or_output_overwrite(tmp_path):
     assert sources=={p.name:p.read_bytes() for p in (core/'tables').iterdir()}
     with pytest.raises(ValueError,match='unused'):
         run(core,out,digest,'fixture',1,10)
+
+
+def test_example_only_end_to_end_reports_partial_scope_and_crc_limit(tmp_path):
+    records,pairs,means,effects,guides,genes=fixture()
+    records.loc[records.target.eq('A'),'source_control_type']='positive_control'
+    order=[2,3,4,0,1];records=records.iloc[order].reset_index(drop=True)
+    means,effects,guides=means[order],effects[order],guides[order]
+    core=tmp_path/'core';(core/'tables').mkdir(parents=True)
+    records.to_csv(core/'tables/guide_effect_metadata.csv',index=False)
+    pairs.to_csv(core/'tables/within_target_pairs.csv',index=False)
+    np.savez_compressed(core/'tables/rna_effect_profiles.npz',means=means,log2fc=effects,guides=guides,gene_ids=genes,
+                        reference_means=np.tile(np.array([1.,2,4,8,16,32]),(len(records),1)))
+    manifest={f'tables/{p.name}':dict(bytes=p.stat().st_size,sha256=hashlib.sha256(p.read_bytes()).hexdigest()) for p in (core/'tables').iterdir()}
+    raw=json.dumps(manifest).encode();(core/'output_manifest.json').write_bytes(raw)
+    result=run_example(core,tmp_path/'example',hashlib.sha256(raw).hexdigest(),'fixture',1,10)
+    assert result['target']=='A' and result['prefix_rows']==2 and result['pairs_reproduced']==1
+    assert not result['partial_numeric_members_crc_checked']
+    assert not result['full_different_target_background_complete']
+    assert result['by_filter']['all_accepted']['response']['median']==pytest.approx(1)

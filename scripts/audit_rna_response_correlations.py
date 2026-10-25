@@ -4,6 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 import time
+import zipfile
 
 import numpy as np
 import pandas as pd
@@ -184,6 +185,102 @@ def run(core, output, manifest_sha, code_commit, read_mib=80, seconds=90):
     return summary
 
 
+def prefix_array(archive, name, rows):
+    """Read only a declared row prefix; partial members do not have full CRC validation."""
+    with archive.open(name + '.npy') as stream:
+        version = np.lib.format.read_magic(stream)
+        if version == (1, 0):
+            shape, fortran, dtype = np.lib.format.read_array_header_1_0(stream)
+        elif version == (2, 0):
+            shape, fortran, dtype = np.lib.format.read_array_header_2_0(stream)
+        else:
+            raise ValueError('Unsupported numeric NPY version')
+        if len(shape) != 2 or fortran or dtype.hasobject or rows > shape[0]:
+            raise ValueError('Unsupported prefix axes/storage')
+        expected = rows * shape[1] * dtype.itemsize
+        raw = stream.read(expected)
+        if len(raw) != expected:
+            raise ValueError('Incomplete numeric prefix')
+        return np.frombuffer(raw, dtype=dtype).reshape(rows, shape[1]).copy(), shape
+
+
+def run_example(core, output, manifest_sha, code_commit, read_mib=2, seconds=60):
+    started = time.monotonic()
+    core, output = Path(core).resolve(), Path(output).resolve()
+    if output.exists() or output == core or output.is_relative_to(core) or core.is_relative_to(output):
+        raise ValueError('Distinct unused audit output required')
+    if (core/'owner.lock').exists():
+        raise ValueError('Accepted core has an active writer')
+    raw = (core/'output_manifest.json').read_bytes()
+    if hashlib.sha256(raw).hexdigest() != manifest_sha:
+        raise ValueError('Core manifest differs')
+    manifest = json.loads(raw)
+    for rel in ['tables/guide_effect_metadata.csv', 'tables/within_target_pairs.csv']:
+        if sha(core/rel) != manifest[rel]['sha256']:
+            raise ValueError('Accepted small table differs')
+    records = pd.read_csv(core/'tables/guide_effect_metadata.csv')
+    pairs = pd.read_csv(core/'tables/within_target_pairs.csv')
+    eligible = records.loc[records.source_control_type.eq('positive_control')].groupby('target').size()
+    target = sorted(eligible[eligible >= 2].index)[0]
+    chosen = records.index[records.target.eq(target)].to_numpy()
+    prefix_rows = int(chosen.max()) + 1
+    if prefix_rows > 32 or records.iloc[0].source_control_type == 'non_targeting_control':
+        raise ValueError('Example requires a small non-NTC leading prefix')
+    path = core/'tables/rna_effect_profiles.npz';before = identity(path)
+    if before['bytes'] != manifest['tables/rna_effect_profiles.npz']['bytes']:
+        raise ValueError('Profile file size differs')
+    with path.open('rb') as stream:
+        reader = BudgetReader(stream, read_mib*1024**2, time.monotonic()+seconds)
+        with np.load(reader, allow_pickle=False) as values:
+            guides, genes = values['guides'].astype(str), values['gene_ids'].astype(str)
+        with zipfile.ZipFile(reader) as archive:
+            means, shape = prefix_array(archive, 'means', prefix_rows)
+            effects, effect_shape = prefix_array(archive, 'log2fc', prefix_rows)
+            reference, reference_shape = prefix_array(archive, 'reference_means', 1)
+    if not np.array_equal(guides, records.guide.astype(str)) or shape != effect_shape or shape != reference_shape or shape != (len(records), len(genes)):
+        raise ValueError('Profile axes/guide order differ')
+    after = identity(path)
+    if any(before[k] != after[k] for k in ['bytes','mtime_ns','device']):
+        raise ValueError('Profile changed during prefix read')
+    expected = np.log2((means+1)/(reference[0]+1))
+    for i in chosen:
+        value = records.iloc[i].direct_feature_index
+        if pd.notna(value):expected[i,int(value)] = np.nan
+    np.testing.assert_allclose(expected[chosen], effects[chosen], atol=1e-10, rtol=1e-10, equal_nan=True)
+    selected = pairs.loc[pairs.target.eq(target)].copy()
+    lookup = {g:i for i,g in enumerate(records.guide)}
+    filters = {'all_accepted':np.ones(len(genes),bool), **{f'ntc_mean_ge_{n}':reference[0]>=n for n in (1,5,10)}}
+    rows = []
+    for pair in selected.itertuples():
+        a,b = lookup[pair.guide_a],lookup[pair.guide_b]
+        assert abs(corr(effects[a],effects[b])-pair.pearson)<1e-10
+        for label,keep in filters.items():
+            rows.append(dict(target=target,guide_a=pair.guide_a,guide_b=pair.guide_b,cells_a=pair.cells_a,cells_b=pair.cells_b,
+                filter=label,features=int(keep.sum()),baseline_mean_r=corr(means[a,keep],means[b,keep]),
+                baseline_log1p_r=corr(np.log1p(means[a,keep]),np.log1p(means[b,keep])),response_r=corr(effects[a,keep],effects[b,keep])))
+    table = pd.DataFrame(rows)
+    best = selected.assign(minimum=selected[['cells_a','cells_b']].min(axis=1)).sort_values(
+        ['minimum','guide_a','guide_b'],ascending=[False,True,True]).iloc[0]
+    a,b = lookup[best.guide_a],lookup[best.guide_b]
+    example = pd.DataFrame(dict(gene_id=genes,ntc_mean=reference[0],mean_a=means[a],mean_b=means[b],log2fc_a=effects[a],log2fc_b=effects[b]))
+    summary = dict(stage='complete',scope='predeclared first annotated-positive target example only',target=target,
+        code_commit=code_commit,helper_sha256=sha(__file__),pairs_reproduced=len(selected),features=len(genes),
+        example=dict(target=target,guide_a=best.guide_a,guide_b=best.guide_b,cells_a=int(best.cells_a),cells_b=int(best.cells_b)),
+        selection='first alphabetical annotated-positive target with >=2 guides; best-covered pair within this target, never correlation-selected',
+        by_filter={label:dict(features=int(part.features.iloc[0]),baseline_mean=describe(part.baseline_mean_r),baseline_log1p=describe(part.baseline_log1p_r),response=describe(part.response_r)) for label,part in table.groupby('filter',sort=False)},
+        core_manifest_sha256=manifest_sha,source_identity_before=before,source_identity_after=after,
+        source_npz_full_sha256_reused=manifest['tables/rna_effect_profiles.npz']['sha256'],source_npz_fresh_full_hash=False,
+        partial_numeric_members_crc_checked=False,accepted_pair_and_log2fc_parity_checked=True,
+        prefix_rows=prefix_rows,compressed_profile_bytes_read=reader.bytes_read,read_budget_bytes=read_mib*1024**2,
+        full_different_target_background_complete=False,per_cell_matrix_read=False,original_filters_changed=False,
+        no_functional_hit_calling=True,elapsed_seconds=time.monotonic()-started)
+    output.mkdir();table.to_csv(output/'pair_comparisons.csv',index=False);example.to_csv(output/'example_profiles.csv',index=False)
+    (output/'summary.json').write_text(json.dumps(summary,indent=2,allow_nan=False),encoding='utf8')
+    proofs = {p.name:dict(bytes=p.stat().st_size,sha256=sha(p)) for p in output.iterdir()}
+    (output/'output_manifest.json').write_text(json.dumps(proofs,indent=2),encoding='utf8')
+    return summary
+
+
 if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--core', required=True)
@@ -192,6 +289,8 @@ if __name__ == '__main__':
     p.add_argument('--code-commit', required=True)
     p.add_argument('--read-mib', type=int, default=80)
     p.add_argument('--read-seconds', type=int, default=90)
+    p.add_argument('--example-only', action='store_true')
     a = p.parse_args()
     with threadpool_limits(limits=2):
-        print(json.dumps(run(a.core, a.output, a.manifest_sha256, a.code_commit, a.read_mib, a.read_seconds), indent=2))
+        function = run_example if a.example_only else run
+        print(json.dumps(function(a.core, a.output, a.manifest_sha256, a.code_commit, a.read_mib, a.read_seconds), indent=2))
