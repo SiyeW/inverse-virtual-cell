@@ -91,13 +91,18 @@ def load_counts(config, progress):
             shape = tuple(node.attrs['shape'])
             raw = sparse.csr_matrix((node['data'][()], node['indices'][()],
                                      node['indptr'][()]), shape=shape)
-            cache_barcodes = text_array(f['var']['_index'])
+            cache_column_names = text_array(f['var']['_index'])
             cache_names = text_array(f['obs']['_index'])
         if len(features) != shape[0]:
             raise ValueError('Cache/features cardinality differs')
         # Matrix Market reader uses positional row names before gene annotation.
         if not np.array_equal(cache_names, np.arange(shape[0]).astype(str)):
             raise ValueError('Unexpected cache row identity')
+        if not np.array_equal(cache_column_names, np.arange(shape[1]).astype(str)):
+            raise ValueError('Unexpected cache column identity')
+        cache_barcodes = pd.read_csv(config['source_barcodes'],sep='\t',header=None)[0].to_numpy()
+        if len(cache_barcodes) != shape[1]:
+            raise ValueError('Cache/barcode cardinality differs')
         rows = checked_index(cache_barcodes, cells.cell_barcode)
         cols = checked_index(features.gene_id, genes.gene_id)
         x = raw[cols][:, rows].T.tocsr()
