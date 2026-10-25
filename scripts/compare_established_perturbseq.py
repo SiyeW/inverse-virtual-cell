@@ -223,7 +223,7 @@ def profiles(matrix, groups, control_mask, guides, *, mode='difference', sd=None
         a = np.asarray(matrix[rows].mean(0)).ravel()
         removed_sum = np.asarray(matrix[removed].sum(0)).ravel() if removed.any() else 0
         b = (control_sum - removed_sum) / n_ref
-        value = np.log2((a+1)/(b+1)) if mode == 'lfc' else a-b
+        value = a if mode == 'signature_mean' else (np.log2((a+1)/(b+1)) if mode == 'lfc' else a-b)
         if sd is not None:
             value = np.divide(value, sd, out=np.full_like(value, np.nan), where=sd>1e-6)
         records.append(dict(group=name, cells=len(rows), reference_cells=n_ref))
@@ -274,16 +274,13 @@ def matched_background_pairs(full, same, candidates, pool_limit=4000, seed=731):
     return output
 
 
-def evaluate(method, matrix, cells, genes, groups, mode, sd, feature_ids):
+def evaluate(method, matrix, cells, genes, groups, mode, sd, feature_ids, return_guide_profiles=False):
     ntc = cells.role.eq('non_targeting_control').to_numpy()
     guides = cells.guide_id.to_numpy()
     full_groups, half_groups, target_groups = groups
     frames = []
     for level, grouped in [('guide', full_groups), ('half', half_groups), ('target', target_groups)]:
         table, effects = profiles(matrix, grouped, ntc, guides, mode=mode, sd=sd)
-        if mode == 'local':
-            # matrix already consists of individual local-control residuals.
-            effects = np.asarray([np.asarray(matrix[rows].mean(0)).ravel() for _, rows in grouped])
         table['level'] = level
         frames.append((table, effects))
     full, effect = frames[0]
@@ -330,8 +327,6 @@ def evaluate(method, matrix, cells, genes, groups, mode, sd, feature_ids):
         second = cells.guide_id.isin(names[1::2]).to_numpy()
         split = [(target+'::guidesA',np.flatnonzero(first)),(target+'::guidesB',np.flatnonzero(second))]
         _, pair = profiles(matrix,split,ntc,guides,mode=mode,sd=sd)
-        if mode=='local':
-            pair = np.asarray([np.asarray(matrix[rows].mean(0)).ravel() for _,rows in split])
         target_pairs.append(dict(target=target,n_a=int(first.sum()),n_b=int(second.sum()),
                                  guides_a=len(names[::2]),guides_b=len(names[1::2]),
                                  r=pearson(pair[0],pair[1],masks[target])))
@@ -339,10 +334,11 @@ def evaluate(method, matrix, cells, genes, groups, mode, sd, feature_ids):
                 ntc_pairs=pd.DataFrame(ntc_pairs),same_guide_halves=pd.DataFrame(repeat),
                 target_disjoint_guides=pd.DataFrame(target_pairs),guide_groups=full)
     summary={key:summarize(table.r) for key,table in tables.items() if 'r' in table}
-    summary.update(method=method,features=len(feature_ids),eligible_guides=len(full))
+    summary.update(method=method,features=len(feature_ids),eligible_guides=len(full),profile_mode=mode)
     ordinary=tables['same_target_pairs']
     summary['ordinary_same_target']=summarize(ordinary.loc[ordinary.role.eq('targeting'),'r']) if same else summarize([])
     summary['same_target_median_of_target_medians']=float(tables['same_target_pairs'].groupby('target').r.median().median()) if same else None
+    if return_guide_profiles:return summary,tables,effect
     return summary,tables
 
 
@@ -405,11 +401,19 @@ def run(config_path):
                      ('B_logmean_same_features',log_old,old_features,'difference',None),
                      ('C_logmean_hvg2000',hvg_log,hvg,'difference',None),
                      ('D_ntc_z_hvg2000',hvg_linear,hvg,'difference',control_sd[hvg]),
-                     ('E_local_ntc_log_hvg2000',residual,hvg,'local',None)]
+                     ('E_local_ntc_contrast_hvg2000',residual,hvg,'difference',None)]
+            if config.get('include_uncentered_signature_audit',False):
+                methods.append(('E0_uncentered_signature_audit',residual,hvg,'signature_mean',None))
+            local_mean=np.asarray(residual[ntc].mean(0)).ravel()
+            pd.DataFrame(dict(gene_id=genes.gene_id.iloc[hvg].to_numpy(),ntc_mean_local_signature=local_mean)).to_csv(out/'ntc_mean_local_signature.csv.gz',index=False)
             summaries=[]
             for name,matrix,features,mode,sd in methods:
                 progress('evaluate',method=name)
-                summary,tables=evaluate(name,matrix,cells,genes.iloc[features],groups,mode,sd,features)
+                save_profiles=config.get('save_local_guide_profiles',False) and name.startswith('E')
+                result=evaluate(name,matrix,cells,genes.iloc[features],groups,mode,sd,features,return_guide_profiles=save_profiles)
+                summary,tables=result[:2]
+                if save_profiles:
+                    np.savez_compressed(out/(name+'_guide_profiles.npz'),effects=result[2],groups=tables['guide_groups'].group.to_numpy(dtype=str),gene_ids=genes.gene_id.iloc[features].to_numpy(dtype=str))
                 summaries.append(summary)
                 for key,table in tables.items():table.to_csv(out/(name+'_'+key+'.csv.gz'),index=False)
             # Conventional target-wise Wilcoxon pilot on fixed, label-blind HVGs.
@@ -436,7 +440,7 @@ def run(config_path):
             pd.DataFrame(stats).to_csv(out/'scanpy_wilcoxon_pilot_summary.csv',index=False)
             final=dict(config=config,representations=summaries,normalization_target_umi=scale,
                        genes=len(genes),cells=len(cells),ntc_cells=int(ntc.sum()),
-                       input_scope=config['input_scope'],max_rss_kib=__import__('resource').getrusage(__import__('resource').RUSAGE_SELF).ru_maxrss,
+                       input_scope=config['input_scope'],ntc_local_signature_mean_rms=float(np.sqrt(np.mean(local_mean**2))),max_rss_kib=__import__('resource').getrusage(__import__('resource').RUSAGE_SELF).ru_maxrss,
                        elapsed_seconds=time.monotonic()-start,code_commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=Path(__file__).resolve().parents[1],text=True).strip(),
                        versions={p:__import__(p).__version__ for p in ['scanpy','anndata','numpy','scipy','sklearn']},
                        inference='descriptive and nominal per-cell pilot only; no biological replicate FDR or validated hits')

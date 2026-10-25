@@ -79,6 +79,24 @@ def test_background_coverage_matching_is_deterministic_and_role_specific():
     assert got[0][0].tolist()==[2,3]
 
 
+def test_local_group_contrasts_ignore_a_common_rna_offset():
+    rng=np.random.default_rng(71)
+    labels=np.repeat(['N1','N2','A1','A2','B1','B2'],20)
+    cells=pd.DataFrame(dict(guide_id=labels,target=np.repeat(['','', 'A','A','B','B'],20),
+                             role=np.repeat(['non_targeting_control']*2+['targeting']*4,20)))
+    genes=pd.DataFrame(dict(gene_name=['r0','r1','r2','r3','r4']))
+    matrix=rng.normal(size=(120,5));offset=np.array([50.,-30.,20.,0.,9.])
+    groups=m.group_sets(cells,17)
+    _,before=m.evaluate('local',matrix,cells,genes,groups,'local',None,np.arange(5))
+    _,after=m.evaluate('local',matrix+offset,cells,genes,groups,'local',None,np.arange(5))
+    for name in ['same_target_pairs','unrelated_pairs','ntc_pairs','same_guide_halves','target_disjoint_guides']:
+        np.testing.assert_allclose(before[name].r,after[name].r,atol=1e-12)
+    # Raw signatures are intentionally a different, offset-sensitive quantity.
+    _,raw=m.profiles(matrix,[('A1',np.arange(40,60))],cells.role.eq('non_targeting_control').to_numpy(),labels,mode='signature_mean')
+    _,raw_shifted=m.profiles(matrix+offset,[('A1',np.arange(40,60))],cells.role.eq('non_targeting_control').to_numpy(),labels,mode='signature_mean')
+    np.testing.assert_allclose(raw_shifted-raw,offset[None,:])
+
+
 def test_10x_adapter_reorders_cells_and_excludes_guide_counts(tmp_path):
     # Last row is guide capture and must not enter RNA library-size normalization.
     raw=sparse.csc_matrix(np.array([[1,2,3],[4,0,6],[0,7,1],[100,100,100]],dtype=np.int64))
