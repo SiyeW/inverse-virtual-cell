@@ -128,7 +128,8 @@ def test_known_same_target_signal_is_recovered_against_unrelated_guides():
 
 
 @pytest.mark.skipif(os.name!='posix',reason='Production launcher uses Linux SIGALRM and resource accounting')
-def test_end_to_end_fixture_preserves_source_and_records_selection_scope(tmp_path):
+@pytest.mark.parametrize('panel_mode',[False,True])
+def test_end_to_end_fixture_preserves_source_and_records_selection_scope(tmp_path,panel_mode):
     obs=metadata_fixture();rng=np.random.default_rng(8);x=rng.poisson(2,size=(len(obs),128)).astype(np.float32)
     p=tmp_path/'source.h5ad'
     with h5py.File(p,'w') as h:
@@ -142,13 +143,17 @@ def test_end_to_end_fixture_preserves_source_and_records_selection_scope(tmp_pat
             o.create_dataset(name,data=values)
         v=h.create_group('var');genes=np.array(['G0','G1',*[f'RNA{i}' for i in range(126)]],dtype=h5py.string_dtype())
         v.create_dataset('_index',data=genes);v.create_dataset('gene_ids',data=genes)
+        v.create_dataset('highly_variable',data=np.ones(128,bool))
+        v.create_dataset('highly_variable_rank',data=np.arange(128,dtype=float))
     before=p.read_bytes();s=p.stat();out=tmp_path/'result'
     config=dict(output=str(out),source=str(p),expected_bytes=s.st_size,expected_mtime_ns=s.st_mtime_ns,
                 arm_sizes=[25],seed=4,historical_sha256='fixture',max_seconds=30)
+    if panel_mode:config.update(feature_mode='preexisting_hvg_panel',panel_size=110,target_panel_size=2,max_payload_bytes=1024**2)
     cp=tmp_path/'config.json';cp.write_text(json.dumps(config));audit.run(cp)
     assert p.read_bytes()==before
     result=json.loads((out/'summary.json').read_text())
     assert result['scope']=='author_selected_strong_perturbation_cohort_only'
     assert not (out/'owner.lock').exists()
     proof=json.loads((out/'input_proof.json').read_text())
-    assert proof['author_total_count_mismatches']==0
+    assert proof['author_total_count_mismatches']==(None if panel_mode else 0)
+    assert proof['normalization_totals_source']==('author_obs' if panel_mode else 'recomputed_all_counts')
