@@ -7,6 +7,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parents[1]/'scripts'))
 from export_original_plot_data import curves
+from render_original_method_comparison import render
+import json
 
 
 def inputs():
@@ -43,3 +45,21 @@ def test_changed_sampling_contract_or_guide_axis_is_rejected(bad):
     elif bad == 'repeat': metrics.loc[0,'repeat'] = 2
     else: records.loc[1,'guide'] = 'N1'
     with pytest.raises(ValueError): curves(records, matched, metrics, support)
+
+
+def test_comparison_requires_public_original_result_and_preserves_facts(tmp_path):
+    payload = curves(*inputs())
+    payload.update(dataset_id='lab', label='Lab fixture', analysis_cells=30,
+                   matched_cells=10, matched_repeats=8,
+                   agreement_unit='one_point_per_target_median_of_guide_pairs')
+    a=tmp_path/'a.json';a.write_text(json.dumps(payload))
+    with pytest.raises(ValueError,match='KOLF'):render([a],tmp_path/'missing')
+    payload.update(dataset_id='kolf_original',label='Public fixture')
+    b=tmp_path/'b.json';b.write_text(json.dumps(payload))
+    result=render([a,b],tmp_path/'plots')
+    table=pd.read_csv(tmp_path/'plots/tables/original_comparison_facts.csv')
+    assert table.median_target_r.eq(.25).all()
+    assert table.NTC_RMS.eq(.2).all()
+    assert len(list((tmp_path/'plots/figures').glob('*.png')))==2
+    payload['matched_cells']=25;b.write_text(json.dumps(payload))
+    with pytest.raises(ValueError,match='Changed method'):render([a,b],tmp_path/'wrong_method')
