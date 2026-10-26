@@ -141,6 +141,51 @@ def aggregate_column(values, rows, assignment, n_groups):
     return np.bincount(keys[keep],weights=values[keep],minlength=n_groups)
 
 
+def select_panel(h, obs, panel_size=512, target_size=64):
+    """Pre-existing HVG ranks and coverage, never observed effect/correlation."""
+    names=np.asarray(read_field(h['var/_index']),dtype=str)
+    hvg=h['var/highly_variable'][:].astype(bool)
+    rank=h['var/highly_variable_rank'][:].astype(float)
+    eligible=np.flatnonzero(hvg & np.isfinite(rank))
+    ordered=eligible[np.lexsort((eligible,rank[eligible]))]
+    if len(ordered)<panel_size:
+        raise ValueError('Insufficient pre-existing HVG ranks for declared panel')
+    rna=ordered[:panel_size]
+    coverage=obs.loc[~obs.gene_target.eq('NTC')].groupby('gene_target',sort=True).size()
+    # Stable tie handling: alphabetical target identity after descending coverage.
+    ranked=coverage.rename('n').reset_index().sort_values(['n','gene_target'],ascending=[False,True])
+    targets=ranked.loc[ranked.gene_target.isin(names),'gene_target'].head(target_size).tolist()
+    extra=np.flatnonzero(np.isin(names,targets)|np.char.startswith(np.char.upper(names),'MT-'))
+    selected=np.unique(np.concatenate([rna,extra]))
+    ptr=h['layers/counts/indptr'][:].astype(np.int64)
+    payload=int(np.sum(ptr[selected+1]-ptr[selected]))*8
+    return selected,np.isin(selected,rna),targets,payload
+
+
+def read_selected_counts(node, columns, progress, max_bytes):
+    """Read only selected CSC columns, with an explicit payload bound."""
+    source_ptr=node['indptr'][:].astype(np.int64)
+    lengths=source_ptr[columns+1]-source_ptr[columns]
+    ptr=np.r_[0,np.cumsum(lengths)];total=int(ptr[-1])*8
+    if total>max_bytes:
+        raise ValueError('Predeclared sparse panel exceeds read budget')
+    values=np.empty(int(ptr[-1]),dtype=np.float32)
+    rows=np.empty(int(ptr[-1]),dtype=np.int32)
+    digests={name:hashlib.sha256() for name in ['data','indices']}
+    shape=tuple(map(int,node.attrs['shape']))
+    for j,col in enumerate(columns):
+        a,b=int(source_ptr[col]),int(source_ptr[col+1]);lo,hi=int(ptr[j]),int(ptr[j+1])
+        values[lo:hi]=node['data'][a:b];rows[lo:hi]=node['indices'][a:b]
+        v=values[lo:hi];r=rows[lo:hi]
+        if not np.isfinite(v).all() or (v<=0).any() or not np.equal(v,np.floor(v)).all():
+            raise ValueError('Selected count entries are not positive integers')
+        if (r<0).any() or (r>=shape[0]).any() or np.any(np.diff(r)<=0):
+            raise ValueError('Invalid selected row identity/order')
+        digests['data'].update(memoryview(v).cast('B'));digests['indices'].update(memoryview(r).cast('B'))
+        if j%20==0 or j+1==len(columns):progress('read_counts_panel',genes_done=j+1,genes_total=len(columns),logical_bytes=hi*8,logical_total=total)
+    return values,rows,ptr,{k:v.hexdigest() for k,v in digests.items()}
+
+
 def correlation(a, b):
     a, b = np.asarray(a,dtype=float), np.asarray(b,dtype=float)
     keep = np.isfinite(a) & np.isfinite(b)
@@ -238,13 +283,26 @@ def run(config_path):
             full_table.to_csv(out/'guide_batch_coverage.csv.gz',index=False)
             reference_names=dict(a=ref_a,b=ref_b)
             (out/'reference_guides.json').write_text(json.dumps(reference_names,indent=2))
-            data,indices,ptr,totals,detected,digests=read_counts(h['layers/counts'],progress)
-            if tuple(h['layers/counts'].attrs['shape'])!=(len(obs),len(genes)):
+            source_shape=tuple(map(int,h['layers/counts'].attrs['shape']))
+            if source_shape!=(len(obs),len(genes)):
                 raise ValueError('RNA count axes differ from cell/gene identities')
+            panel_mode=config.get('feature_mode')=='preexisting_hvg_panel'
+            panel_feature=None;target_panel=None
+            if panel_mode:
+                columns,panel_feature,target_panel,payload=select_panel(h,obs,config['panel_size'],config['target_panel_size'])
+                progress('planned_panel',genes=len(columns),correlation_panel=config['panel_size'],logical_payload_bytes=payload)
+                data,indices,ptr,digests=read_selected_counts(h['layers/counts'],columns,progress,config['max_payload_bytes'])
+                genes=genes[columns];gene_ids=gene_ids[columns]
+                totals=obs.n_UMI_counts.to_numpy(dtype=float)
+                detected=obs.n_genes.to_numpy(dtype=np.int64)
+                if (totals<=0).any():raise ValueError('Invalid author full-RNA totals')
+            else:
+                data,indices,ptr,totals,detected,digests=read_counts(h['layers/counts'],progress)
         progress('aggregate_profiles')
         means_raw=np.array([float(data[ptr[j]:ptr[j+1]].sum(dtype=np.float64))/len(obs) for j in range(len(genes))])
         feature=means_raw>config.get('raw_mean_feature_threshold',.5)
-        target_gene=np.isin(genes,obs.loc[~obs.gene_target.eq('NTC'),'gene_target'].unique())
+        if panel_mode:feature &= panel_feature
+        target_gene=np.isin(genes,target_panel if panel_mode else obs.loc[~obs.gene_target.eq('NTC'),'gene_target'].unique())
         selected=np.flatnonzero(feature|target_gene)
         mask=feature[selected]
         if mask.sum()<100:
@@ -296,7 +354,7 @@ def run(config_path):
         summary_table=pd.DataFrame(stats);summary_table.to_csv(out/'correlation_summary.csv',index=False)
         effect_rows=[];lookup={name:j for j,name in enumerate(genes[selected])}
         for row in full_table.itertuples():
-            if row.target=='NTC' or row.target not in lookup:continue
+            if row.target=='NTC' or row.target not in lookup or (panel_mode and row.target not in target_panel):continue
             col=lookup[row.target];bi=batches.index(row.batch)
             a,b=ref_n[bi*2:bi*2+2]
             reference=(ref_linear[bi*2,col]*a+ref_linear[bi*2+1,col]*b)/(a+b)
@@ -313,16 +371,21 @@ def run(config_path):
         proof=dict(source=str(source),source_bytes=int(before.st_size),source_mtime_ns=int(before.st_mtime_ns),
                    historical_container_sha256=config['historical_sha256'],fresh_whole_container_hash=False,
                    sparse_payload_sha256=digests,rows=len(obs),genes=len(genes),counts_layer='counts',
-                   author_total_count_mismatches=int(np.count_nonzero(totals!=obs.n_UMI_counts.to_numpy())),
-                   author_detected_RNA_mismatches=int(np.count_nonzero(detected!=obs.n_genes.to_numpy())),
+                   read_scope='selected_RNA_columns' if panel_mode else 'all_RNA_columns',
+                   normalization_totals_source='author_obs' if panel_mode else 'recomputed_all_counts',
+                   source_genes=source_shape[1],mitochondrial_counts_recomputed=True,
+                   selected_gene_ids=gene_ids.tolist() if panel_mode else None,
+                   target_RNA_panel=target_panel,
+                   author_total_count_mismatches=None if panel_mode else int(np.count_nonzero(totals!=obs.n_UMI_counts.to_numpy())),
+                   author_detected_RNA_mismatches=None if panel_mode else int(np.count_nonzero(detected!=obs.n_genes.to_numpy())),
                    source_unchanged=True)
         after=source.stat()
         if (before.st_size,before.st_mtime_ns)!=(after.st_size,after.st_mtime_ns):
             raise ValueError('Source identity changed during audit')
         (out/'input_proof.json').write_text(json.dumps(proof,indent=2))
         effect_eligible=effect_table[effect_table.cells.ge(50)&effect_table.ntc_normalized_mean.ge(.5)]
-        final=dict(scope='author_selected_strong_perturbation_cohort_only',config=config,
-                   cells=len(obs),genes=len(genes),ntc_cells=int(ntc.sum()),targets=int(obs.loc[~ntc,'gene_target'].nunique()),
+        final=dict(scope='author_selected_strong_perturbation_cohort_only',feature_scope='fixed_preexisting_HVG_panel' if panel_mode else 'all_RNA_raw_mean_filter',config=config,
+                   cells=len(obs),source_genes=source_shape[1],gene_columns_read=len(genes),ntc_cells=int(ntc.sum()),targets=int(obs.loc[~ntc,'gene_target'].nunique()),
                    correlation_features=int(mask.sum()),normalized_NTC_median_by_batch=scale,
                    qc_quantiles={k:qc[k].quantile([.25,.5,.75]).to_dict() for k in ['total_counts','detected_RNA','mt_percent']},
                    target_RNA_changes=describe(effect_eligible.relative_change),

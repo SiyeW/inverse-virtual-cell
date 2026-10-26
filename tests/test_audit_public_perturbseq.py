@@ -81,6 +81,31 @@ def test_sparse_group_normalization_matches_direct_dense_arithmetic():
         np.testing.assert_allclose(audit.aggregate_column(v,rr,assign,2),expected[:,col])
 
 
+def test_panel_read_is_exact_and_does_not_read_other_columns(tmp_path):
+    x=np.array([[1,0,3,0],[0,2,0,1],[4,1,1,5]],dtype=np.float32)
+    with h5py.File(tmp_path/'panel.h5','w') as h:
+        c=write_counts(h,x)
+        values,rows,ptr,_=audit.read_selected_counts(c,np.array([0,3]),lambda *_args,**_kw:None,1024)
+        got=sparse.csc_matrix((values,rows,ptr),shape=(3,2)).toarray()
+        np.testing.assert_array_equal(got,x[:,[0,3]])
+        with pytest.raises(ValueError,match='read budget'):
+            audit.read_selected_counts(c,np.array([0,3]),lambda *_args,**_kw:None,1)
+
+
+def test_panel_selection_uses_rank_and_coverage_not_effect_flags(tmp_path):
+    with h5py.File(tmp_path/'selection.h5','w') as h:
+        v=h.create_group('var')
+        v.create_dataset('_index',data=np.array(['G0','G1','MT-X','R3','R4'],dtype=h5py.string_dtype()))
+        v.create_dataset('highly_variable',data=[True,False,False,True,True])
+        v.create_dataset('highly_variable_rank',data=[2.,np.nan,np.nan,1.,0.])
+        write_counts(h.create_group('layers'),np.ones((4,5)))
+        obs=pd.DataFrame(dict(gene_target=['G0','G1','G1','NTC'],effect=[1e5,-1e5,100,0]))
+        selected,mask,targets,payload=audit.select_panel(h,obs,panel_size=2,target_size=1)
+        np.testing.assert_array_equal(selected,[1,2,3,4])
+        np.testing.assert_array_equal(mask,[False,False,True,True])
+        assert targets==['G1'] and payload==4*4*8
+
+
 def test_expression_comparison_uses_disjoint_arms_instead_of_self_correlation():
     entries=pd.DataFrame([dict(batch='A',guide='one',target='G',role='targeting',arm=0,arm_id=0),
                           dict(batch='A',guide='one',target='G',role='targeting',arm=1,arm_id=1)])
