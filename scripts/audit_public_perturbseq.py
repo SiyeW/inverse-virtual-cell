@@ -141,6 +141,34 @@ def aggregate_column(values, rows, assignment, n_groups):
     return np.bincount(keys[keep],weights=values[keep],minlength=n_groups)
 
 
+def correlation_feature_mask(raw_means, panel_feature=None, threshold=.5):
+    """A predeclared HVG panel is an alternative to an all-RNA mean filter.
+
+    Remove only all-zero panel columns. Intersecting it with the old all-RNA
+    abundance filter silently substitutes a different, potentially empty panel.
+    """
+    raw_means=np.asarray(raw_means)
+    return raw_means>threshold if panel_feature is None else np.asarray(panel_feature,bool)&(raw_means>0)
+
+
+def checkpoint_panel(out, values, rows, ptr, genes, obs, before, digests):
+    """Retain an exact small input before downstream validation can fail."""
+    path=out/'count_panel_checkpoint.npz'
+    with (out/'count_panel_checkpoint.tmp').open('wb') as stream:
+        np.savez_compressed(stream,data=values,indices=rows,indptr=ptr,gene_ids=genes,
+                            cell_barcodes=obs['_index'].to_numpy(dtype=str))
+    (out/'count_panel_checkpoint.tmp').replace(path)
+    digest=hashlib.sha256()
+    with path.open('rb') as stream:
+        for block in iter(lambda:stream.read(4*1024**2),b''):digest.update(block)
+    obs.to_csv(out/'count_panel_cell_metadata.csv.gz',index=False)
+    proof=dict(source_bytes=int(before.st_size),source_mtime_ns=int(before.st_mtime_ns),
+               sparse_payload_sha256=digests,checkpoint_sha256=digest.hexdigest(),
+               checkpoint_bytes=path.stat().st_size,cells=len(obs),gene_columns=len(genes),
+               selection='predeclared source HVG and coverage-based target RNA panel')
+    (out/'count_panel_checkpoint.json').write_text(json.dumps(proof,indent=2))
+
+
 def select_panel(h, obs, panel_size=512, target_size=64):
     """Pre-existing HVG ranks and coverage, never observed effect/correlation."""
     names=np.asarray(read_field(h['var/_index']),dtype=str)
@@ -300,12 +328,13 @@ def run(config_path):
                 selected_detected=np.bincount(indices,minlength=len(obs))
                 if np.any(selected_totals>totals) or np.any(selected_detected>detected):
                     raise ValueError('Selected integer counts exceed author whole-cell totals')
+                checkpoint_panel(out,data,indices,ptr,gene_ids,obs,before,digests)
             else:
                 data,indices,ptr,totals,detected,digests=read_counts(h['layers/counts'],progress)
         progress('aggregate_profiles')
         means_raw=np.array([float(data[ptr[j]:ptr[j+1]].sum(dtype=np.float64))/len(obs) for j in range(len(genes))])
-        feature=means_raw>config.get('raw_mean_feature_threshold',.5)
-        if panel_mode:feature &= panel_feature
+        feature=correlation_feature_mask(means_raw,panel_feature if panel_mode else None,
+                                         config.get('raw_mean_feature_threshold',.5))
         target_gene=np.isin(genes,target_panel if panel_mode else obs.loc[~obs.gene_target.eq('NTC'),'gene_target'].unique())
         selected=np.flatnonzero(feature|target_gene)
         mask=feature[selected]

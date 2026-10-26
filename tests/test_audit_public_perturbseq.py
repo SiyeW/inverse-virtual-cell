@@ -106,6 +106,13 @@ def test_panel_selection_uses_rank_and_coverage_not_effect_flags(tmp_path):
         assert targets==['G1'] and payload==4*4*8
 
 
+def test_predeclared_hvg_panel_does_not_inherit_unrelated_full_rna_filter():
+    means=np.array([.01,.1,.4,0.,10.])
+    panel=np.array([True,True,True,True,False])
+    np.testing.assert_array_equal(audit.correlation_feature_mask(means,panel),[True,True,True,False,False])
+    np.testing.assert_array_equal(audit.correlation_feature_mask(means),[False,False,False,False,True])
+
+
 def test_expression_comparison_uses_disjoint_arms_instead_of_self_correlation():
     entries=pd.DataFrame([dict(batch='A',guide='one',target='G',role='targeting',arm=0,arm_id=0),
                           dict(batch='A',guide='one',target='G',role='targeting',arm=1,arm_id=1)])
@@ -157,3 +164,9 @@ def test_end_to_end_fixture_preserves_source_and_records_selection_scope(tmp_pat
     proof=json.loads((out/'input_proof.json').read_text())
     assert proof['author_total_count_mismatches']==(None if panel_mode else 0)
     assert proof['normalization_totals_source']==('author_obs' if panel_mode else 'recomputed_all_counts')
+    if panel_mode:
+        with np.load(out/'count_panel_checkpoint.npz') as cache:
+            cached=sparse.csc_matrix((cache['data'],cache['indices'],cache['indptr']),shape=(len(obs),110)).toarray()
+            np.testing.assert_array_equal(cached,x[:,:110])
+        receipt=json.loads((out/'count_panel_checkpoint.json').read_text())
+        assert receipt['cells']==len(obs) and receipt['gene_columns']==110
