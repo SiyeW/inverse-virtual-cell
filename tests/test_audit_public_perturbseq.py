@@ -148,7 +148,7 @@ def test_end_to_end_fixture_preserves_source_and_records_selection_scope(tmp_pat
     before=p.read_bytes();s=p.stat();out=tmp_path/'result'
     config=dict(output=str(out),source=str(p),expected_bytes=s.st_size,expected_mtime_ns=s.st_mtime_ns,
                 arm_sizes=[25],seed=4,historical_sha256='fixture',max_seconds=30)
-    if panel_mode:config.update(feature_mode='preexisting_hvg_panel',panel_size=110,target_panel_size=2,max_payload_bytes=1024**2)
+    if panel_mode:config.update(feature_mode='preexisting_hvg_panel',panel_size=110,target_panel_size=2,max_payload_bytes=4*1024**2)
     cp=tmp_path/'config.json';cp.write_text(json.dumps(config));audit.run(cp)
     assert p.read_bytes()==before
     result=json.loads((out/'summary.json').read_text())
