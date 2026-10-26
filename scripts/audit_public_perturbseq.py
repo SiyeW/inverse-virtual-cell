@@ -296,6 +296,10 @@ def run(config_path):
                 totals=obs.n_UMI_counts.to_numpy(dtype=float)
                 detected=obs.n_genes.to_numpy(dtype=np.int64)
                 if (totals<=0).any():raise ValueError('Invalid author full-RNA totals')
+                selected_totals=np.bincount(indices,weights=data,minlength=len(obs))
+                selected_detected=np.bincount(indices,minlength=len(obs))
+                if np.any(selected_totals>totals) or np.any(selected_detected>detected):
+                    raise ValueError('Selected integer counts exceed author whole-cell totals')
             else:
                 data,indices,ptr,totals,detected,digests=read_counts(h['layers/counts'],progress)
         progress('aggregate_profiles')
