@@ -92,6 +92,59 @@ def test_panel_read_is_exact_and_does_not_read_other_columns(tmp_path):
             audit.read_selected_counts(c,np.array([0,3]),lambda *_args,**_kw:None,1)
 
 
+class GuardedCountNode:
+    """An input whose accepted prefix is unavailable to a restarted reader."""
+    def __init__(self,node,forbidden_prefix):
+        self.node=node;self.attrs=node.attrs;self.forbidden_prefix=forbidden_prefix
+
+    def __getitem__(self,name):
+        dataset=self.node[name]
+        if name=='indptr':return dataset
+        prefix=self.forbidden_prefix
+        class Payload:
+            def __getitem__(self,where):
+                if where.start<prefix:raise RuntimeError('Accepted source prefix must not be reread')
+                return dataset[where]
+        return Payload()
+
+
+def test_interrupted_panel_resumes_without_reading_accepted_source_prefix(tmp_path):
+    x=np.arange(1,25,dtype=np.float32).reshape(4,6);cache=tmp_path/'cache';columns=np.arange(6)
+    key=dict(path='frozen_fixture',bytes=123,mtime_ns=456)
+    class Interrupted(Exception):pass
+    def stop_after_checkpoint(stage,**kw):
+        if kw['genes_done']==2:raise Interrupted()
+    with h5py.File(tmp_path/'resume.h5','w') as h:
+        c=write_counts(h,x)
+        with pytest.raises(Interrupted):
+            audit.read_selected_counts(c,columns,stop_after_checkpoint,4096,cache_dir=cache,source_identity=key,chunk_columns=2)
+        assert not (cache/'reader.lock').exists()
+        saved=json.loads((cache/'manifest.json').read_text());assert list(saved['chunks'])==['0']
+        unavailable=GuardedCountNode(c,int(c['indptr'][2]))
+        progress=[]
+        values,rows,ptr,_=audit.read_selected_counts(unavailable,columns,lambda stage,**kw:progress.append(kw),4096,cache_dir=cache,source_identity=key,chunk_columns=2)
+        np.testing.assert_array_equal(sparse.csc_matrix((values,rows,ptr),shape=x.shape).toarray(),x)
+        assert progress[-1]['reused_columns']==2
+        # With every chunk accepted the entire original payload may be offline.
+        no_payload=GuardedCountNode(c,int(c['indptr'][-1])+1)
+        progress=[]
+        audit.read_selected_counts(no_payload,columns,lambda stage,**kw:progress.append(kw),4096,cache_dir=cache,source_identity=key,chunk_columns=2)
+        assert progress[-1]['source_logical_bytes_read']==0 and progress[-1]['reused_columns']==6
+
+
+def test_checkpoint_corruption_and_changed_source_identity_fail_closed(tmp_path):
+    cache=tmp_path/'cache';key=dict(path='frozen_fixture',mtime_ns=123)
+    with h5py.File(tmp_path/'cache.h5','w') as h:
+        c=write_counts(h,np.ones((4,6)))
+        audit.read_selected_counts(c,np.arange(6),lambda *_args,**_kw:None,4096,cache_dir=cache,source_identity=key,chunk_columns=2)
+        unavailable=GuardedCountNode(c,1000)
+        with pytest.raises(ValueError,match='identity differs'):
+            audit.read_selected_counts(unavailable,np.arange(6),lambda *_args,**_kw:None,4096,cache_dir=cache,source_identity=dict(path='different'),chunk_columns=2)
+        part=cache/'columns_0000_0002.npz';contents=bytearray(part.read_bytes());contents[0]^=1;part.write_bytes(contents)
+        with pytest.raises(ValueError,match='SHA256 differs'):
+            audit.read_selected_counts(unavailable,np.arange(6),lambda *_args,**_kw:None,4096,cache_dir=cache,source_identity=key,chunk_columns=2)
+
+
 def test_panel_selection_uses_rank_and_coverage_not_effect_flags(tmp_path):
     with h5py.File(tmp_path/'selection.h5','w') as h:
         v=h.create_group('var')

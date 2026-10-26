@@ -16,6 +16,7 @@ from pathlib import Path
 import signal
 import subprocess
 import time
+from contextlib import contextmanager
 
 import h5py
 import numpy as np
@@ -190,9 +191,52 @@ def select_panel(h, obs, panel_size=512, target_size=64):
     return selected,np.isin(selected,rna),targets,payload
 
 
-def read_selected_counts(node, columns, progress, max_bytes):
-    """Read only selected CSC columns, with an explicit payload bound."""
+def file_sha256(path):
+    digest=hashlib.sha256()
+    with Path(path).open('rb') as stream:
+        for block in iter(lambda:stream.read(4*1024**2),b''):digest.update(block)
+    return digest.hexdigest()
+
+
+@contextmanager
+def cache_writer(cache_dir):
+    if cache_dir is None:
+        yield None
+        return
+    cache_dir=Path(cache_dir);cache_dir.mkdir(parents=True,exist_ok=True)
+    lock=cache_dir/'reader.lock'
+    fd=os.open(lock,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+    try:
+        owner=dict(pid=os.getpid(),uid=os.getuid() if hasattr(os,'getuid') else None)
+        proc=Path('/proc')/str(os.getpid())/'stat'
+        if proc.exists():owner['startticks']=int(proc.read_text().rsplit(')',1)[1].split()[19])
+        with os.fdopen(fd,'w') as stream:json.dump(owner,stream)
+        yield cache_dir
+    finally:
+        lock.unlink(missing_ok=True)
+
+
+def validate_panel_column(values, rows, n_rows):
+    if not np.isfinite(values).all() or (values<=0).any() or not np.equal(values,np.floor(values)).all():
+        raise ValueError('Selected count entries are not positive integers')
+    if (rows<0).any() or (rows>=n_rows).any() or np.any(np.diff(rows)<=0):
+        raise ValueError('Invalid selected row identity/order')
+
+
+def read_selected_counts(node, columns, progress, max_bytes, *, cache_dir=None,
+                         source_identity=None, chunk_columns=20):
+    """Checkpoint complete column blocks; a restart never rereads accepted blocks."""
+    columns=np.asarray(columns,dtype=np.int64)
+    shape=tuple(map(int,node.attrs['shape']))
+    encoding=node.attrs.get('encoding-type')
+    if isinstance(encoding,bytes):encoding=encoding.decode()
+    if encoding!='csc_matrix':raise ValueError('Expected CSC count layer')
+    if len(columns)==0 or (columns<0).any() or (columns>=shape[1]).any() or np.any(np.diff(columns)<=0):
+        raise ValueError('Panel columns must be unique, sorted, in-bounds identities')
+    if chunk_columns<1:raise ValueError('Invalid checkpoint block size')
     source_ptr=node['indptr'][:].astype(np.int64)
+    if len(source_ptr)!=shape[1]+1 or source_ptr[0]!=0 or (np.diff(source_ptr)<0).any():
+        raise ValueError('Invalid CSC count pointers')
     lengths=source_ptr[columns+1]-source_ptr[columns]
     ptr=np.r_[0,np.cumsum(lengths)];total=int(ptr[-1])*8
     if total>max_bytes:
@@ -200,17 +244,64 @@ def read_selected_counts(node, columns, progress, max_bytes):
     values=np.empty(int(ptr[-1]),dtype=np.float32)
     rows=np.empty(int(ptr[-1]),dtype=np.int32)
     digests={name:hashlib.sha256() for name in ['data','indices']}
-    shape=tuple(map(int,node.attrs['shape']))
-    for j,col in enumerate(columns):
-        a,b=int(source_ptr[col]),int(source_ptr[col+1]);lo,hi=int(ptr[j]),int(ptr[j+1])
-        values[lo:hi]=node['data'][a:b];rows[lo:hi]=node['indices'][a:b]
-        v=values[lo:hi];r=rows[lo:hi]
-        if not np.isfinite(v).all() or (v<=0).any() or not np.equal(v,np.floor(v)).all():
-            raise ValueError('Selected count entries are not positive integers')
-        if (r<0).any() or (r>=shape[0]).any() or np.any(np.diff(r)<=0):
-            raise ValueError('Invalid selected row identity/order')
-        digests['data'].update(memoryview(v).cast('B'));digests['indices'].update(memoryview(r).cast('B'))
-        if j%20==0 or j+1==len(columns):progress('read_counts_panel',genes_done=j+1,genes_total=len(columns),logical_bytes=hi*8,logical_total=total)
+    # Retain the two HDF5 dataset handles and their chunk caches across columns.
+    source_values=node['data'];source_rows=node['indices']
+    contract=dict(version=1,source_identity=source_identity,source_shape=list(shape),
+                  columns=columns.tolist(),chunk_columns=chunk_columns)
+    if cache_dir is not None and not source_identity:
+        raise ValueError('A durable count cache requires a frozen source identity')
+    source_bytes=0;reused_columns=0
+    with cache_writer(cache_dir) as cache:
+        manifest_path=cache/'manifest.json' if cache else None
+        if manifest_path and manifest_path.exists():
+            if manifest_path.stat().st_size>2*1024**2:raise ValueError('Oversized cache manifest')
+            manifest=json.loads(manifest_path.read_text())
+            if manifest['contract']!=contract:raise ValueError('Count cache source/column identity differs')
+        else:
+            manifest=dict(contract=contract,chunks={})
+        def publish_manifest():
+            if manifest_path:
+                tmp=cache/'manifest.tmp';tmp.write_text(json.dumps(manifest,indent=2));tmp.replace(manifest_path)
+        if manifest_path and not manifest_path.exists():publish_manifest()
+        for first in range(0,len(columns),chunk_columns):
+            end=min(first+chunk_columns,len(columns));lo,hi=int(ptr[first]),int(ptr[end])
+            name=f'columns_{first:04d}_{end:04d}.npz';entry=manifest['chunks'].get(str(first))
+            if entry is not None:
+                path=cache/entry['name']
+                if entry['name']!=name or file_sha256(path)!=entry['sha256']:
+                    raise ValueError('Count cache checkpoint SHA256 differs')
+                with np.load(path,allow_pickle=False) as saved:
+                    if not np.array_equal(saved['columns'],columns[first:end]) or not np.array_equal(saved['indptr'],ptr[first:end+1]-lo):
+                        raise ValueError('Count cache checkpoint axes differ')
+                    if len(saved['data'])!=hi-lo or len(saved['indices'])!=hi-lo:
+                        raise ValueError('Count cache checkpoint cardinality differs')
+                    values[lo:hi]=saved['data'];rows[lo:hi]=saved['indices']
+                reused_columns+=end-first
+            else:
+                if cache and ((cache/name).exists() or (cache/(name+'.tmp')).exists()):
+                    raise ValueError('Unaccepted checkpoint preserved; reconcile before retry')
+                for j in range(first,end):
+                    col=columns[j];a,b=int(source_ptr[col]),int(source_ptr[col+1]);a_out,b_out=int(ptr[j]),int(ptr[j+1])
+                    values[a_out:b_out]=source_values[a:b];rows[a_out:b_out]=source_rows[a:b]
+                    validate_panel_column(values[a_out:b_out],rows[a_out:b_out],shape[0])
+                source_bytes+=(hi-lo)*8
+                if cache:
+                    temporary=cache/(name+'.tmp')
+                    with temporary.open('xb') as stream:
+                        np.savez_compressed(stream,data=values[lo:hi],indices=rows[lo:hi],
+                                            indptr=ptr[first:end+1]-lo,columns=columns[first:end])
+                    checksum=file_sha256(temporary);temporary.replace(cache/name)
+                    manifest['chunks'][str(first)]=dict(name=name,sha256=checksum,first_column=first,
+                                                      end_column=end,logical_bytes=(hi-lo)*8)
+                    publish_manifest()
+            for j in range(first,end):
+                a_out,b_out=int(ptr[j]),int(ptr[j+1])
+                validate_panel_column(values[a_out:b_out],rows[a_out:b_out],shape[0])
+            digests['data'].update(memoryview(values[lo:hi]).cast('B'))
+            digests['indices'].update(memoryview(rows[lo:hi]).cast('B'))
+            progress('read_counts_panel',genes_done=end,genes_total=len(columns),logical_bytes=hi*8,
+                     logical_total=total,source_logical_bytes_read=source_bytes,reused_columns=reused_columns,
+                     durable_columns=end if cache else 0)
     return values,rows,ptr,{k:v.hexdigest() for k,v in digests.items()}
 
 
@@ -319,7 +410,10 @@ def run(config_path):
             if panel_mode:
                 columns,panel_feature,target_panel,payload=select_panel(h,obs,config['panel_size'],config['target_panel_size'])
                 progress('planned_panel',genes=len(columns),correlation_panel=config['panel_size'],logical_payload_bytes=payload)
-                data,indices,ptr,digests=read_selected_counts(h['layers/counts'],columns,progress,config['max_payload_bytes'])
+                source_key=dict(path=str(source),bytes=int(before.st_size),mtime_ns=int(before.st_mtime_ns),
+                                historical_sha256=config['historical_sha256'])
+                data,indices,ptr,digests=read_selected_counts(h['layers/counts'],columns,progress,config['max_payload_bytes'],
+                    cache_dir=Path(config.get('count_cache_dir',out/'count_read_chunks')),source_identity=source_key)
                 genes=genes[columns];gene_ids=gene_ids[columns]
                 totals=obs.n_UMI_counts.to_numpy(dtype=float)
                 detected=obs.n_genes.to_numpy(dtype=np.int64)
