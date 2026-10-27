@@ -10,7 +10,7 @@ import pytest
 sys.path.insert(0,str(Path(__file__).parents[1]/'scripts'))
 from public_count_cache import cache_counts
 from perturbseq_core_effects import stable_rng
-from revalidate_batch_reference import plan_groups,stream_means,profiles_and_draws
+from revalidate_batch_reference import plan_groups,stream_means,profiles_and_draws,revision_figures
 
 
 def fixture():
@@ -71,6 +71,25 @@ def test_cross_batch_targeting_or_corrupt_checkpoint_fails_closed(tmp_path):
     counts,obs,records=fixture()
     obs.loc[obs.guide_id.eq('T1').idxmax(),'batch']='B'
     with pytest.raises(ValueError,match='Targeting guide spans batches'):plan_groups(obs,records)
+
+
+def test_plotter_accepts_an_original_with_no_matched_background(tmp_path):
+    source=tmp_path/'baseline';out=tmp_path/'revision'
+    (source/'tables').mkdir(parents=True);(out/'tables').mkdir(parents=True)
+    pair=pd.DataFrame([dict(target='T',guide_a='a',guide_b='b',pearson=.3)])
+    pair.to_csv(source/'tables/within_target_pairs.csv',index=False)
+    # A legitimate original artifact can have no pearson column when every
+    # background was explicitly unmatched; never fabricate zero correlations.
+    pd.DataFrame([dict(comparator='different_target',matched=False)]).to_csv(source/'tables/diagnostic_matched_backgrounds.csv',index=False)
+    for name in ['A1_within_batch_mean_lfc','B1_within_batch_cellwise_log2']:
+        pair.to_csv(out/f'tables/{name}_within_target_pairs.csv',index=False)
+        pd.DataFrame([dict(comparator='within_batch_NTC_pair',pearson=-.02)]).to_csv(out/f'tables/{name}_background_pairs.csv',index=False)
+        rows=[dict(key=role,source_control_type=role,cells=n,repeat=r,rms=.2/n**.5)
+              for role in ['targeting','non_targeting_control'] for n in [10,50] for r in range(1,9)]
+        pd.DataFrame(rows).to_csv(out/f'tables/{name}_matched_RMS.csv',index=False)
+    (out/'case_scatter_data.json').write_text('[]')
+    revision_figures(out,source)
+    assert len(list((out/'figures').glob('*.png')))==2
 
 
 @pytest.mark.skipif(sys.platform=='win32',reason='Actual Linux owner/alarm end-to-end contract')

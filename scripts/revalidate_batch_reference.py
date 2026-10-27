@@ -292,7 +292,7 @@ def revision_figures(out,source):
         if name=='A0_original':
             pair=pd.read_csv(source/'tables/within_target_pairs.csv')
             bg=pd.read_csv(source/'tables/diagnostic_matched_backgrounds.csv')
-            choices=[('Different target',bg.loc[bg.comparator.eq('different_target')&bg.matched.astype(bool),'pearson'])]
+            choices=[('Different target',bg.loc[bg.comparator.eq('different_target')&bg.matched.astype(bool),'pearson'])] if 'pearson' in bg else []
         else:
             pair=pd.read_csv(out/f'tables/{name}_within_target_pairs.csv')
             bg=pd.read_csv(out/f'tables/{name}_background_pairs.csv')
@@ -328,13 +328,14 @@ def revision_figures(out,source):
         fig,axes=plt.subplots(len(targets),3,figsize=(15,4.5*len(targets)),squeeze=False,layout='constrained')
         for row,target in enumerate(targets):
             selected=[x for x in cases if x['target']==target]
-            bound=max(max(abs(np.asarray(x[k]))) for x in selected for k in ['x','y'])*1.04
+            bound=max(.05,max(max(abs(np.asarray(x[k]))) for x in selected for k in ['x','y'])*1.04)
             for col,name in enumerate(methods):
                 part=next(x for x in selected if x['method']==name);ax=axes[row,col]
                 ax.scatter(part['x'],part['y'],s=3,alpha=.3)
                 ax.plot([-bound,bound],[-bound,bound],ls='--',color='black',lw=.8)
+                r_label=f'{part["pearson"]:.3f}' if part['pearson'] is not None else 'undefined'
                 ax.set(xlim=(-bound,bound),ylim=(-bound,bound),xlabel=part['guide_a'],ylabel=part['guide_b'],
-                       title=f'{target}: {titles[col]}\nr={part["pearson"]:.3f}; {len(part["x"])} RNA')
+                       title=f'{target}: {titles[col]}\nr={r_label}; {len(part["x"])} RNA')
         fig.suptitle('Prespecified published reference cases; the original largest two guides')
         fig.savefig(out/'figures/03_published_reference_cases.png',dpi=160,bbox_inches='tight');plt.close(fig)
 
