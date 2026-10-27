@@ -83,6 +83,14 @@ def test_completed_original_to_cached_batch_revision_without_source_payload(tmp_
     counts,obs,records=fixture()
     rng=np.random.default_rng(80)
     counts=np.c_[counts,rng.poisson(5,size=(len(obs),220))+1].astype(np.int32)
+    # The adopted QC is data-dependent and may remove a tail record. Leave
+    # real headroom above the production minimum of 100 NTCs in each batch.
+    # Duplicate synthetic rows under UNIQUE new cell identities, then compare
+    # to the actually adopted baseline cohort rather than assuming all pass.
+    take=np.repeat(np.arange(len(obs)),2)
+    counts=counts[take];obs=obs.iloc[take].copy()
+    obs.index=[f'cell{i}' for i in range(len(obs))]
+    obs['source_row']=np.arange(len(obs))
     path=tmp_path/'public.h5ad'
     strings=h5py.string_dtype('utf-8')
     from scipy import sparse
@@ -108,7 +116,7 @@ def test_completed_original_to_cached_batch_revision_without_source_payload(tmp_
     monkeypatch.setattr(original,'revision',lambda *_a:dict(commit='fixture'))
     monkeypatch.setattr(plots,'save',plots.save);monkeypatch.setattr(runner,'save',runner.save)
     monkeypatch.setattr(plots,'NAMES',plots.NAMES.copy());monkeypatch.setattr(runner,'NAMES',runner.NAMES.copy())
-    original.run(cfgpath)
+    baseline_summary=original.run(cfgpath)
     # A successful revision must NOT touch even one original H5AD byte.
     path.unlink()
     new=dict(expected_commit='fixture',baseline=str(tmp_path/'baseline'),output=str(tmp_path/'revision'),
@@ -117,7 +125,8 @@ def test_completed_original_to_cached_batch_revision_without_source_payload(tmp_
     monkeypatch.setattr(revised,'revision',lambda *_a:dict(commit='fixture'))
     revised.run(newpath)
     out=tmp_path/'revision';result=json.loads((out/'summary.json').read_text())
-    assert result['analysis_cells']==len(obs) and result['RNA_features']==counts.shape[1]
+    assert result['analysis_cells']==baseline_summary['additional_RNA_QC_cells']
+    assert result['RNA_features']==counts.shape[1]
     assert result['source_count_payload_read'] is False
     assert result['original_bridge_max_error']<1e-10
     assert not (out/'owner.lock').exists()
