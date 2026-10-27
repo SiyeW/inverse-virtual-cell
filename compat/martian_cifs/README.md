@@ -30,6 +30,41 @@ installations and scientific attempts must remain unchanged.
   optimization. All other syscalls are unchanged; no system policy or mount is
   modified, and privileges cannot be gained in the child tree.
 
+## Log identity recovery
+
+Upstream `VerifyLogFile` compares the open descriptor's file identity with the
+current `_log` path. CIFS can invalidate that comparison without deleting the
+log. `patch_log_identity.py` is a SHA-gated adapter for the pinned logging source;
+apply it only to a fresh software-source copy, then build a separate runtime.
+
+With `MRO_CIFS_COMPAT=1`, an explicitly bounded `MRO_CIFS_SAME_MODE_ROOT`, and a
+kernel-confirmed CIFS descriptor, an identity mismatch can use a live-content
+proof. Under the logger mutex, it appends an unpredictable marker through the
+original descriptor, syncs, and reads that marker at its actual append offset
+through the expected path. Missing files, symlinks, scope escapes, filesystem
+changes, and actual replacement files fail closed, including a replacement with
+an identical old prefix. Native filesystems and ordinary runs retain the strict
+upstream check. This changes log checking, not scientific stages or their inputs.
+
+Copy `cifs_log_identity*.go` into the candidate's `martian/util` through the
+adapter. Run util/core/mrp tests and the explicit actual-storage case via
+`MRO_CIFS_LOG_TEST_ROOT`. The remapped-inode case simulates an unequal ID; it is
+not a claim to reproduce the original multi-day kernel event. The actual CIFS
+case must also reject a real copied replacement. Re-run the small interrupted
+pipeline fixture with the new runtime before a separately authorized recovery.
+
+`resume_preserved.py` is a one-attempt production recovery entrypoint. It requires
+an immutable stopped-run inventory, unchanged invocation/UUID, exact scientific
+CSV and input identities, a tested private view, and explicit authorization to
+preserve completed chip02 work. Completed metadata are hashed; existing outputs
+and required remaining-stage inputs are checked by their recorded metadata,
+without pretending to freshly hash hundreds of GB. Completed-stage temporary
+outputs that have already been consumed are recorded separately and cannot
+replace validation of the actual remaining-stage dependencies. Original control
+logs remain in place; the resumed owner uses a fresh control directory. It
+refuses completed-node execution and upstream shard/barcode reexecution, keeps
+the existing CPU/RAM/disk protections, and never enables full-stage reset.
+
 ## Build and tests
 
 Use an independent checkout of the fixed upstream commit. Export with LF line
