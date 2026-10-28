@@ -15,6 +15,11 @@ KINDS=['within_guide','same_target','different_target','NTC']
 CAPTIONS=['同一条sgRNA的细胞\n随机分成两组','靶向同一基因的\n不同sgRNA细胞组','靶向不同基因的\nsgRNA细胞组','检测到不同NTC sgRNA的\n细胞组']
 
 
+def short_guide(value):
+    value=str(value)
+    return value if len(value)<=33 else value[:17]+'…'+value[-13:]
+
+
 def validate_points(root,n):
     result={}
     for name in DATASETS:
@@ -46,7 +51,7 @@ def render(root,out):
         count=int(points[name].comparison.eq('same_target').sum())
         ax.plot([],[],marker='s',ls='',color=COLORS[name],label=f'{LABELS[name]}（{count}组配对）')
     ax.set(xticks=np.arange(4),xticklabels=CAPTIONS,xlim=(-.55,3.55),ylim=(0,ymax*1.1),
-           ylabel='两组RNA变化的平均绝对差\n（log₂单位；越低越接近）',title=f'每组{n}个细胞｜共同2,272项RNA作为基准')
+           ylabel='两组RNA变化的平均绝对差\n（log2单位；越低越接近）',title=f'每组{n}个细胞｜共同2,272项RNA作为基准')
     ax.legend(frameon=False,loc='upper right',fontsize=10)
     ax.grid(axis='y',alpha=.15,zorder=0)
     fig.savefig(out/'01_variation_boxplots.png',dpi=180);fig.savefig(out/'01_variation_boxplots.svg');plt.close(fig)
@@ -67,8 +72,10 @@ def render(root,out):
             ax.plot([-bound,bound],[-bound,bound],ls='--',color='#333333',lw=.8);ax.axhline(0,lw=.4,color='#aaaaaa');ax.axvline(0,lw=.4,color='#aaaaaa')
             mae=float(np.mean(np.abs(table.x-table.y)))
             ax.set(xlim=(-bound,bound),ylim=(-bound,bound),aspect='equal',
-                   xlabel=f'{a}细胞组的RNA变化（log₂FC）',ylabel=f'{b}细胞组的RNA变化（log₂FC）',
-                   title=LABELS[name]+'｜'+('同靶点' if kind=='same_target' else '不同靶点')+f'\n每组{n}细胞；平均绝对差 {mae:.3f}')
+                   xlabel='第一组细胞的RNA变化（log2FC）',ylabel='第二组细胞的RNA变化（log2FC）',
+                   title=LABELS[name]+'｜'+('同靶点' if kind=='same_target' else '不同靶点'))
+            ax.text(.02,.97,f'第一组：{short_guide(a)}\n第二组：{short_guide(b)}\n每组{n}细胞；平均绝对差 {mae:.3f}',transform=ax.transAxes,
+                    va='top',fontsize=8.5,bbox=dict(facecolor='white',edgecolor='none',alpha=.8))
             # Labels describe large differences only; they are not a DE test.
             top=table.assign(delta=np.abs(table.x-table.y)).nlargest(3,'delta')
             for k,r in enumerate(top.itertuples()):
