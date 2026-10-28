@@ -149,7 +149,7 @@ def prepare_expected(baseline,records,common):
     if (columns<0).any():raise ValueError('Common RNA not in original result')
     rows=pd.Index(saved['guides'].astype(str)).get_indexer(records.guide.astype(str))
     first=int(np.flatnonzero(original.source_control_type.ne('non_targeting_control'))[0])
-    return saved['means'][rows][:,columns],saved['reference_means'][first,columns],saved['gene_ids'].astype(str),proof
+    return saved['means'][rows][:,columns].astype(float),saved['reference_means'][first,columns].astype(float),saved['gene_ids'].astype(str),proof
 
 
 def process_lab(cfg,common,out,n,repeats,seed,progress):
@@ -160,6 +160,8 @@ def process_lab(cfg,common,out,n,repeats,seed,progress):
     plan=make_plan(cells,records,pairs,support,old['gene_ids'].astype(str),common,n,repeats,seed)
     bind_inputs(plan,cells,cfg['scale'],count_proof.get('canonical_counts_sha256',count_proof.get('source_sha256')))
     expected,ref,_,proof=prepare_expected(baseline,plan['records'],common)
+    ratio=float(cfg['scale'])/float(cfg.get('baseline_scale',cfg['scale']))
+    expected*=ratio;ref*=ratio
     selected=pd.Index(genes.gene_id.astype(str)).get_indexer(common)
     if (selected<0).any():raise ValueError('Common RNA missing from count input')
     panel=x[:,selected].astype(np.float64).tocsc();del x
@@ -174,7 +176,7 @@ def process_lab(cfg,common,out,n,repeats,seed,progress):
         means=(plan['operator']@panel[:,columns]).toarray();accumulator.consume(columns,means)
         progress('variation_RNA_blocks',completed_RNA=int(accumulator.done.sum()),total_RNA=len(common))
     names=genes.gene_name.to_numpy(str)[selected]
-    return plan,accumulator,cells,names,dict(counts=count_proof,baseline_members=proof,mean_bridge_max_error=accumulator.max_error,scale=cfg['scale'])
+    return plan,accumulator,cells,names,dict(counts=count_proof,baseline_members=proof,mean_bridge_max_error=accumulator.max_error,scale=cfg['scale'],original_scale=cfg.get('baseline_scale',cfg['scale']),linear_bridge_scaling=ratio)
 
 
 def process_public(cfg,common,out,n,repeats,seed,progress):
@@ -190,6 +192,8 @@ def process_public(cfg,common,out,n,repeats,seed,progress):
     plan=make_plan(cells,records,pairs,support,original['gene_ids'].astype(str),common,n,repeats,seed)
     bind_inputs(plan,cells,cfg['scale'],cfg['cache_manifest_sha256'])
     expected,ref,_,proof=prepare_expected(baseline,plan['records'],common)
+    ratio=float(cfg['scale'])/float(cfg.get('baseline_scale',cfg['scale']))
+    expected*=ratio;ref*=ratio
     accumulator=Accumulator(plan,expected,ref,out/'rna_checkpoint.npz')
     columns=genes.index.astype(str).get_indexer(common)
     if (columns<0).any():raise ValueError('Public common RNA missing')
@@ -214,7 +218,7 @@ def process_public(cfg,common,out,n,repeats,seed,progress):
         consumed.append(dict(file=entry['file'],bytes=entry['bytes'],sha256=entry['sha256']))
         progress('variation_public_cache',completed_RNA=int(accumulator.done.sum()),total_RNA=len(common),cached_bytes=sum(v['bytes'] for v in consumed))
     names=genes.gene_name.to_numpy(str)[columns]
-    return plan,accumulator,cells,names,dict(source_count_payload_read=False,accepted_cache_blocks_read=consumed,baseline_members=proof,mean_bridge_max_error=accumulator.max_error,scale=cfg['scale'])
+    return plan,accumulator,cells,names,dict(source_count_payload_read=False,accepted_cache_blocks_read=consumed,baseline_members=proof,mean_bridge_max_error=accumulator.max_error,scale=cfg['scale'],original_scale=cfg.get('baseline_scale',cfg['scale']),linear_bridge_scaling=ratio)
 
 
 def run(config,resume=False):
@@ -260,7 +264,7 @@ def run(config,resume=False):
             result=dict(analysis_cells=len(cells),NTC_cells=plan['ntc_cells'],eligible_guides=len(plan['records']),same_target_pairs=len(plan['plan']),targets=int(plan['plan'].target.nunique()),n=config['n'],repeats=config['repeats'],RNA_base=len(common),bridge_max_error=acc.max_error,case=metadata)
             files={p.name:dict(bytes=p.stat().st_size,sha256=sha(p)) for p in out.iterdir() if p.is_file() and p.name not in ['complete.json','rna_checkpoint.npz','rna_checkpoint.json']}
             atomic(complete,dict(files=files,result=result));results[name]=result;update('dataset_complete')
-        summary=dict(complete=True,datasets=results,code_commit=config['expected_commit'],method='original normalized mean RNA; log2(mean+1); same reference cancels in pair distance',
+        summary=dict(complete=True,datasets=results,code_commit=config['expected_commit'],method='per-cell total RNA normalization to 10000; log2(mean+1); same reference cancels in pair distance',
                      distance='mean absolute RNA difference',sizes=[config['n']//2,config['n']],primary_n=config['n'],repeats=config['repeats'],
                      within_guide='average of the two query guides disjoint split distances',RNA_mask='union of direct target RNAs for the query and different-target comparator, applied to all four arms',
                      batch_conditioning=False,cell_filtering_changed=False,biological_replicates=False,editing_efficiency_assessed=False)

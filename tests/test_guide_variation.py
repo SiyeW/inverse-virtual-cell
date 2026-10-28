@@ -77,7 +77,7 @@ def test_public_cache_resume_does_not_reread_completed_source(tmp_path,monkeypat
         np.savez_compressed(p,data=matrix.data,rows=matrix.indices,ptr=matrix.indptr)
         entries.append(dict(file=p.name,first=first,end=first+2,bytes=p.stat().st_size,sha256=hashlib.sha256(p.read_bytes()).hexdigest()))
     manifest=cache/'manifest.json';manifest.write_text(json.dumps(dict(contract={'rows':axis_hash(obs.index),'genes':axis_hash(genes)},blocks=entries)))
-    cfg=dict(baseline=str(base),cache_manifest_sha256=hashlib.sha256(manifest.read_bytes()).hexdigest(),scale=10)
+    cfg=dict(baseline=str(base),cache_manifest_sha256=hashlib.sha256(manifest.read_bytes()).hexdigest(),scale=20,baseline_scale=10)
     out=tmp_path/'result';out.mkdir();original=Path.read_bytes
     def interrupted(p):
         if p==cache/'b2.npz':raise TimeoutError('synthetic interruption')
