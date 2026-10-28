@@ -31,14 +31,40 @@ def validate_points(root,n):
     return result
 
 
-def render(root,out):
+def paper_batch_diagnostic(root,metadata,out,n):
+    meta=pd.read_csv(metadata);meta=meta.loc[meta.source_control_type.eq('targeting')].set_index('guide')
+    if not meta.index.is_unique:raise ValueError('A public targeting guide has multiple batch labels')
+    plan=pd.read_csv(root/'kolf/comparison_plan.csv')
+    for col in ['guide_a','guide_b','other_a','other_b']:
+        plan[col+'_batch']=plan[col].map(meta.batch)
+        if plan[col+'_batch'].isna().any():raise ValueError('Missing known public batch')
+    plan['query_same_batch']=plan.guide_a_batch.eq(plan.guide_b_batch)
+    plan['different_same_batch']=plan.other_a_batch.eq(plan.other_b_batch)
+    plan['exact_batch_pattern_match']=[sorted([a,b])==sorted([c,d]) for a,b,c,d in zip(plan.guide_a_batch,plan.guide_b_batch,plan.other_a_batch,plan.other_b_batch)]
+    values=pd.read_csv(root/'kolf/variation_points.csv');values=values.loc[values.cells_per_group.eq(n)].pivot(index='pair_id',columns='comparison',values='mean_absolute_difference')
+    if set(values.index)!=set(plan.index):raise ValueError('Batch diagnostic changed source pairing')
+    match=plan.exact_batch_pattern_match.to_numpy();selected=values.loc[match]
+    summary=dict(all_pairs=len(plan),query_cross_batch_fraction=float((~plan.query_same_batch).mean()),
+        different_cross_batch_fraction=float((~plan.different_same_batch).mean()),exact_batch_matched_pairs=int(match.sum()),
+        matched_same_median=float(selected.same_target.median()),matched_different_median=float(selected.different_target.median()),
+        matched_within_median=float(selected.within_guide.median()),matched_difference_minus_same=float((selected.different_target-selected.same_target).median()),
+        matched_fraction_same_closer=float((selected.same_target<selected.different_target).mean()),
+        RNA_values_or_references_changed=False,metadata_sha256=hashlib.sha256(Path(metadata).read_bytes()).hexdigest())
+    plan.to_csv(out/'paper_pair_batch_annotations.csv',index=False)
+    (out/'paper_batch_diagnostic.json').write_text(json.dumps(summary,indent=2)+'\n')
+    return summary
+
+
+def render(root,out,paper_metadata):
     root=Path(root);out=Path(out);out.mkdir(parents=True,exist_ok=False)
     font=Path('C:/Windows/Fonts/msyh.ttc')
     if not font.exists():raise ValueError('Readable Chinese font unavailable')
     font_manager.fontManager.addfont(str(font))
     plt.rcParams.update({'font.family':font_manager.FontProperties(fname=font).get_name(),'font.size':11,'axes.unicode_minus':False,'axes.spines.top':False,'axes.spines.right':False})
     summary=json.loads((root/'summary.json').read_text());n=int(summary['primary_n']);points=validate_points(root,n)
+    batch=paper_batch_diagnostic(root,Path(paper_metadata),out,n)
     fig,ax=plt.subplots(figsize=(13.3,6.6),layout='constrained');rows=[];ymax=0
+    fig.get_layout_engine().set(rect=(0,.09,1,.91))
     for j,name in enumerate(DATASETS):
         for i,kind in enumerate(KINDS):
             values=points[name].loc[points[name].comparison.eq(kind),'mean_absolute_difference'].to_numpy()
@@ -54,6 +80,9 @@ def render(root,out):
            ylabel='两组RNA变化的平均绝对差\n（log2单位；越低越接近）',title=f'每组{n}个细胞｜共同2,272项RNA作为基准')
     ax.legend(frameon=False,loc='upper right',fontsize=10)
     ax.grid(axis='y',alpha=.15,zorder=0)
+    fig.text(.5,.025,'每点为一组配对8次抽样的中位数；组内项为两条guide分别随机拆组的差异再平均。\n'
+             f'论文异靶配对{100*batch["different_cross_batch_fraction"]:.1f}%跨批（同靶{100*batch["query_cross_batch_fraction"]:.1f}%）；绝对值不直接代表实验质量。',
+             ha='center',va='bottom',fontsize=9,color='#555555')
     fig.savefig(out/'01_variation_boxplots.png',dpi=180);fig.savefig(out/'01_variation_boxplots.svg');plt.close(fig)
     pd.DataFrame(rows).to_csv(out/'variation_summary.csv',index=False)
     case_data={};bound=0;case_summaries=[]
@@ -96,11 +125,11 @@ def render(root,out):
     provenance=dict(source_summary=summary,axes_shared=True,main_n=n,same_four_arm_pair_cohort=True,
                     case_repeat=1,figure1_each_point='median of8 draws; within is average of each query guide split distance',
                     direct_target_RNAs_not_used_for_distance=True,example_selection='coverage only; no common assessable target across all3 datasets',
-                    plot_source_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest())
+                    plot_source_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),paper_batch_diagnostic=batch)
     (out/'plot_provenance.json').write_text(json.dumps(provenance,ensure_ascii=False,indent=2)+'\n',encoding='utf8')
     return rows
 
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser();p.add_argument('--source',type=Path,required=True);p.add_argument('--output',type=Path,required=True);a=p.parse_args()
-    print(json.dumps(render(a.source,a.output),ensure_ascii=False))
+    p=argparse.ArgumentParser();p.add_argument('--source',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--paper-metadata',type=Path,required=True);a=p.parse_args()
+    print(json.dumps(render(a.source,a.output,a.paper_metadata),ensure_ascii=False))
