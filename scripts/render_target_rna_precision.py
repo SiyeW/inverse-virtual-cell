@@ -84,8 +84,8 @@ def render(oldroot,newroot,overview,out,font=None):
     handles=[Line2D([0],[0],c='#b9b9b9',lw=6,label='灰粗线：相同细胞数的NTC组95%波动范围'),
              Line2D([0],[0],c='#216a9b',lw=1.8,label='蓝细线：guide均值的95%重抽样区间'),
              Line2D([0],[0],marker='o',c='none',markerfacecolor='#182731',markeredgecolor='#182731',label='点：原来的靶RNA剩余量')]
-    fig.legend(handles=handles,loc='lower center',bbox_to_anchor=(.5,.07),ncol=1,frameon=False,fontsize=10)
-    fig.text(.5,.018,'每条guide使用全部合格细胞；灰线按该guide的实际细胞数从NTC取组，参照排除这组NTC本身。\n蓝线固定原NTC均值，以SciPy BCa方法重抽guide细胞2000次；它是当前细胞集合的抽样精度，不是生物重复或编辑率。\n全未检出的guide不画0±0区间；下方例子在看结果前已指定，不能当全库代表。>400%用右箭头，完整值见表。',ha='center',fontsize=9)
+    fig.legend(handles=handles,loc='lower center',bbox_to_anchor=(.5,.073),ncol=3,frameon=False,fontsize=9)
+    fig.text(.5,.018,'每条guide使用全部合格细胞。灰线按该guide的实际细胞数从NTC取组，参照不含这组NTC。\n蓝线固定原NTC均值，重抽guide细胞2000次；范围不代表独立实验重复或DNA编辑率。\n未检出不画0±0。例子在计算区间前已指定；完整逐guide区间见表，>400%用右箭头。',ha='center',fontsize=9)
     for ext in ['png','svg']:fig.savefig(out/('靶RNA总览与抽样区间.'+ext),dpi=180)
     plt.close(fig)
     pd.DataFrame(summaries).to_csv(out.parent/'figure_interval_summary.csv',index=False)
