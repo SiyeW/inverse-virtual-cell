@@ -60,11 +60,12 @@ def backgrounds(root,path,suffix=''):
                         label=f'{COMPARISONS[kind]}（中位数{float(np.median(x)):.3f}）')
                 rows.append(dict(dataset=name,method=method,comparison=kind,pairs=len(x),median=float(np.median(x))))
             ax.axvline(0,color='#777777',lw=.6)
-            ax.set(xlim=(-1,1),ylim=(0,1.02),title=LABELS[name]+'｜'+('原方法' if method=='old' else '先log后平均'))
+            n=int(table.comparison.eq('same_target').sum())
+            ax.set(xlim=(-1,1),ylim=(0,1.02),title=LABELS[name]+'｜'+('原方法' if method=='old' else '先log后平均')+f'（{n}组）')
             ax.legend(frameon=False,fontsize=8,loc='lower right');ax.spines[['top','right']].set_visible(False)
             if row==1:ax.set_xlabel('两条sgRNA的RNA变化相关系数')
             if col==0:ax.set_ylabel('不超过横轴相关系数的配对比例')
-    fig.suptitle('原方法与统一改法：同基因、不同基因和NTC配对',fontsize=13)
+    fig.suptitle('按细胞数匹配的配对对照｜论文同时匹配已知批次',fontsize=13)
     fig.savefig(path,dpi=180);fig.savefig(path.with_suffix('.svg'));plt.close(fig)
     return rows
 
