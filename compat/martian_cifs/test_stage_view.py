@@ -49,3 +49,16 @@ def test_report_overlay_is_independent(tmp_path):
     assert b'cifs_content_copy.checked_copy' in (out/module.REPORT_PATH).read_bytes()
     assert not (out/module.REPORT_PATH).is_symlink()
     assert json.loads((out/'.env.json').read_text())['envs'][-1]=={'key':'PYTHONPATH','type':'path_prepend','value':'compat'}
+
+def test_directory_overlay_preserves_source_and_scientific_callback(tmp_path):
+    src,runtime,shim=fixture(tmp_path)
+    target=src/module.CR_IO_PATH;target.parent.mkdir(parents=True)
+    source=b'import shutil\n\ndef hardlink_with_fallback(src, dst):\n    def _hardlink_file_with_fallback(a,b): pass\n    shutil.copytree(src, dst, copy_function=_hardlink_file_with_fallback, dirs_exist_ok=True)\n'
+    target.write_bytes(source);helper=tmp_path/'directory.py';helper.write_text('def copytree(a,b,**k): pass\n')
+    out=tmp_path/'view'
+    record=module.stage(src,runtime,out,shim,directory_helper=helper,cr_io_sha256=hashlib.sha256(source).hexdigest())
+    assert target.read_bytes()==source
+    assert b'cifs_directory_copy.copytree' in (out/module.CR_IO_PATH).read_bytes()
+    assert not (out/module.CR_IO_PATH).is_symlink()
+    assert record['scientific_binaries_modified'] is False
+    assert record['directory_publication_policy']=='content_verified_inherit_destination'

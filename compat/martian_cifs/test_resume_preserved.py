@@ -40,6 +40,8 @@ def test_completed_node_execution_guard_preserves_zero_padding(tmp_path):
     assert completed_node_reexecution('[runtime] (run:local) ID.chip.MAKE_SHARD.fork0.chnk0.main','chip',inventory)
     assert completed_node_reexecution('[runtime] (run:local) ID.chip.BARCODE_CORRECTION.fork0.chnk000.main','chip',inventory)
     assert not completed_node_reexecution('[runtime] (update) ID.chip.ALIGN_AND_COUNT.fork0 (46/50 completed)','chip',inventory)
+    inventory['forbidden_stage_fragments']=['.ALIGN_AND_COUNT.']
+    assert completed_node_reexecution('[runtime] (run:local) ID.chip.ALIGN_AND_COUNT.fork0.chnk49.main','chip',inventory)
 
 
 def test_preserved_path_cannot_escape_run(tmp_path):

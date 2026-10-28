@@ -59,6 +59,8 @@ def completed_node_reexecution(text, run_name, inventory):
             return line
         if '.MAKE_SHARD.' in line or '.BARCODE_CORRECTION.' in line:
             return line
+        if any(fragment in line for fragment in inventory.get('forbidden_stage_fragments', [])):
+            return line
     return None
 
 
@@ -90,7 +92,7 @@ def validate(config):
         raise ValueError('Private software view identity changed')
     software=json.loads((view/'compat_view.json').read_text())
     for item in software['files']:
-        if item['kind'] in ['verified_copy','fixed_loader_config','local_only_report_copy_policy']:
+        if item['kind'] in ['verified_copy','fixed_loader_config','local_only_report_copy_policy','local_only_directory_copy_policy']:
             if sha(view/item['path'])!=item['sha256']:raise ValueError('Software copy changed')
     if sha(Path(config['repair_receipt']))!=config['repair_receipt_sha256']:
         raise ValueError('Repair tests receipt changed')

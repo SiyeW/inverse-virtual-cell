@@ -2,6 +2,7 @@
 import argparse, hashlib, json, os, shutil
 from pathlib import Path
 from adapt_report import adapt, REPORT_PATH
+from adapt_directory_copy import adapt as adapt_directory, CR_IO_PATH
 
 def digest(path):
     h=hashlib.sha256()
@@ -9,7 +10,8 @@ def digest(path):
         for b in iter(lambda:f.read(4*1024*1024),b''):h.update(b)
     return h.hexdigest()
 
-def stage(source, runtime, target, shim, content_helper=None, reporting_sha256=None):
+def stage(source, runtime, target, shim, content_helper=None, reporting_sha256=None,
+          directory_helper=None, cr_io_sha256=None):
     source=source.resolve(strict=True);runtime=runtime.resolve(strict=True)
     shim=shim.resolve(strict=True)
     target=target.absolute()
@@ -34,18 +36,29 @@ def stage(source, runtime, target, shim, content_helper=None, reporting_sha256=N
         if digest(helper_target)!=h:raise ValueError('Report helper copy mismatch')
         receipts.append(dict(path='compat/cifs_content_copy.py',source=str(content_helper),sha256=h,kind='verified_copy'))
         expand.update(p.as_posix() for p in Path(REPORT_PATH).parents if str(p)!='.')
+    if (directory_helper is None)!=(cr_io_sha256 is None):raise ValueError('Directory helper and source hash must be paired')
+    if directory_helper is not None:
+        directory_helper=directory_helper.resolve(strict=True)
+        helper_target=target/'compat/cifs_directory_copy.py';h=digest(directory_helper)
+        shutil.copyfile(directory_helper,helper_target)
+        if digest(helper_target)!=h:raise ValueError('Directory helper copy mismatch')
+        receipts.append(dict(path='compat/cifs_directory_copy.py',source=str(directory_helper),sha256=h,kind='verified_copy'))
+        expand.update(p.as_posix() for p in Path(CR_IO_PATH).parents if str(p)!='.')
     def visit(src,dst,prefix=''):
         for child in sorted(src.iterdir()):
             rel=(prefix+'/'+child.name).strip('/');out=dst/child.name
             if content_helper is not None and rel==REPORT_PATH:
                 out.write_bytes(adapt(child.read_bytes(),reporting_sha256))
                 receipts.append(dict(path=rel,source=str(child),source_sha256=digest(child),sha256=digest(out),kind='local_only_report_copy_policy'))
+            elif directory_helper is not None and rel==CR_IO_PATH:
+                out.write_bytes(adapt_directory(child.read_bytes(),cr_io_sha256))
+                receipts.append(dict(path=rel,source=str(child),source_sha256=digest(child),sha256=digest(out),kind='local_only_directory_copy_policy'))
             elif rel=='.env.json':
                 config=json.loads(child.read_text())
                 entries=[e for e in config['envs'] if e['key']=='LD_PRELOAD']
                 if len(entries)!=1 or entries[0]['type']!='unset':raise ValueError('Unexpected loader configuration')
                 entries[0].update(type='string',value=str(shim_target))
-                if content_helper is not None:config['envs'].append(dict(key='PYTHONPATH',type='path_prepend',value='compat'))
+                if content_helper is not None or directory_helper is not None:config['envs'].append(dict(key='PYTHONPATH',type='path_prepend',value='compat'))
                 out.write_text(json.dumps(config,indent=2)+'\n')
                 receipts.append(dict(path=rel,source=str(child),source_sha256=digest(child),sha256=digest(out),kind='fixed_loader_config'))
             elif rel in custom:
@@ -68,6 +81,7 @@ def stage(source, runtime, target, shim, content_helper=None, reporting_sha256=N
         if row['path']=='cellranger':row.update(kind='local_launcher_entry',source='bin/cellranger')
     record=dict(source=str(source),target=str(target),original_modified=False,
                 scientific_binaries_modified=False,report_attachment_policy='content_verified_inherit_destination' if content_helper else 'original',files=receipts,experimental=True)
+    record['directory_publication_policy']='content_verified_inherit_destination' if directory_helper else 'original'
     (target/'compat_view.json').write_text(json.dumps(record,indent=2)+'\n')
     return record
 

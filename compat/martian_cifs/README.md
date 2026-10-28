@@ -116,3 +116,13 @@ Never enable automatic recovery of a real failed analysis as part of this test.
 Do not modify shared mounts, permissions, original FASTQ/BAM, previous outputs,
 or the installed vendor package. Record runtime, shim, inputs and outputs with
 hashes. Full production recovery needs a separate progress/cost assessment.
+# Directory publication on the owned CIFS output
+
+The opt-in directory adapter replaces only the `shutil.copytree` call inside
+the pinned vendor `hardlink_with_fallback`. It preserves the vendor file-copy
+callback and verifies published file contents, while destination directories
+inherit permissions and timestamps. The original installation and native
+behavior remain unchanged. The adapter requires an explicit owned root and a
+kernel-confirmed CIFS filesystem; links, path escapes, differing existing
+contents, oversized bundles and file-copy errors remain failures. Its real-data
+fixture uses a tiny independent directory and does not execute counting stages.
