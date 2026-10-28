@@ -27,10 +27,13 @@ def render(root,out,font=None):
     else:plt.rcParams['font.family']='Microsoft YaHei'
     plt.rcParams['axes.unicode_minus']=False
     out.mkdir(parents=True,exist_ok=True)
+    inputs={name:pd.read_csv(root/name/'guide_target_RNA.csv') for name in DATASETS}
+    all_x=pd.concat([select_points(t)[0].NTC_mean_per_10000 for t in inputs.values()])
+    xlimits=(10**np.floor(np.log10(all_x.min())),10**np.ceil(np.log10(all_x.max())))
     fig,axes=plt.subplots(1,3,figsize=(16,6.2),sharey=True)
     rows=[];provenance={}
     for name,title,ax in zip(DATASETS,TITLES,axes):
-        path=root/name/'guide_target_RNA.csv';table=pd.read_csv(path)
+        path=root/name/'guide_target_RNA.csv';table=inputs[name]
         p,good=select_points(table);strong=p.loc[good]
         for mask,color,label,zorder in [(~good,'#b5b5b5','NTC中检出不足10%',2),(good,'#327dad','NTC中检出至少10%',3)]:
             q=p.loc[mask];y=q.RNA_remaining_ratio*100
@@ -41,16 +44,16 @@ def render(root,out,font=None):
         pc=p.loc[p.source_control_type.eq('positive_control')]
         ax.scatter(pc.NTC_mean_per_10000,np.minimum(pc.RNA_remaining_ratio*100,199),s=60,marker='D',facecolors='none',edgecolors='#cf7924',linewidths=1,label='文库标注正控',zorder=4)
         ax.axhline(100,c='#333333',lw=1.1,zorder=1);ax.axhline(50,c='#999999',lw=.7,ls='--',zorder=1)
-        ax.set_xscale('log');ax.set_ylim(-3,207);ax.set_xlim(.001,10000)
+        ax.set_xscale('log');ax.set_ylim(-3,207);ax.set_xlim(*xlimits)
         ax.set_yticks([0,25,50,75,100,125,150,175,200]);ax.set_title(title,fontsize=12,pad=13)
         ax.set_xlabel('NTC中靶RNA的平均量\n（每10,000个总RNA UMI）',fontsize=11)
         ax.grid(axis='y',alpha=.15);ax.spines[['top','right']].set_visible(False)
         top=int((p.RNA_remaining_ratio>2).sum())
         med=100*strong.RNA_remaining_ratio.median() if len(strong) else np.nan
-        ax.text(.025,.965,f'{len(p)}条sgRNA，{p.target_gene_id.nunique()}个靶RNA\n蓝点中位剩余量：{med:.1f}%',transform=ax.transAxes,ha='left',va='top',fontsize=10,bbox=dict(facecolor='white',alpha=.87,edgecolor='none'),zorder=5)
+        ax.text(.98,.965,f'{len(p)}条sgRNA，{p.target_gene_id.nunique()}个靶RNA\n蓝点中位剩余量：{med:.1f}%',transform=ax.transAxes,ha='right',va='top',fontsize=10,bbox=dict(facecolor='white',alpha=.87,edgecolor='none'),zorder=5)
         excluded=dict(fewer_than_10=int(table.cells.lt(10).sum()),reference_not_detected=int((table.cells.ge(10)&table.NTC_mean_per_10000.eq(0)).sum()),mapping_missing=int(table.mapping_status.eq('missing_from_full_reference').sum()))
         ax.text(.025,-.24,f'未作点：少于10个细胞 {excluded["fewer_than_10"]}条；NTC未检出 {excluded["reference_not_detected"]}条\n超过200% {top}条，用顶部三角表示；完整值见表。',transform=ax.transAxes,fontsize=9,va='top')
-        provenance[name]=dict(input_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),plotted_guides=len(p),overflow_gt200=top,excluded=excluded)
+        provenance[name]=dict(input_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),plotted_guides=len(p),overflow_gt200=top,excluded=excluded,xlimits=xlimits,horizontal_clipping=False)
         rows.append(dict(dataset=name,plotted_guides=len(p),plotted_targets=p.target_gene_id.nunique(),reliably_detected_definition='NTC nonzero fraction >=0.10; descriptive screen, not assay success cutoff',guides_NTC_detection_ge10=len(strong),median_RNA_remaining_percent=med,above200=top,**excluded))
     axes[0].set_ylabel('sgRNA细胞组的靶RNA均值 / NTC均值（%）',fontsize=11)
     axes[1].legend(loc='lower right',fontsize=9,framealpha=.95)
