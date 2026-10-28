@@ -198,7 +198,7 @@ def run(config):
             name=d['id'];baseline=Path(d['baseline']);progress('fixed_profiles',dataset=name)
             function=public_profiles if d['kind']=='saved_public_means' else lab_profiles
             rec,genes,a,b,proof=function(d,baseline,lambda stage,**kw:progress(stage,dataset=name,**kw))
-            np.savez_compressed(out/(name+'_profiles_checkpoint.npz'),old=a,new=b,gene_ids=genes,guides=rec.guide.astype(str).to_numpy())
+            np.savez_compressed(out/(name+'_profiles_checkpoint.npz'),old=a,new=b,gene_ids=np.asarray(genes,dtype=str),guides=rec.guide.to_numpy(dtype=str))
             rec.to_csv(out/(name+'_records.csv'),index=False);atomic(out/(name+'_input_proof.json'),proof)
             support=pd.read_csv(baseline/'tables/target_support.csv');pairs=pd.read_csv(baseline/'tables/within_target_pairs.csv')
             plan=fixed_plan(rec,support,pairs);plan.to_csv(out/(name+'_comparison_plan.csv'),index=False)

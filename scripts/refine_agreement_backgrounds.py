@@ -12,6 +12,18 @@ from compare_agreement_overlay import members,atomic,sha,centers_from_means
 from perturbseq_core_effects import pair_effects
 
 
+def load_checkpoint(source,name):
+    record=source/(name+'_records.csv');manifest=json.loads((source/'output_manifest.json').read_text())
+    if sha(record)!=manifest[record.name]['sha256']:raise ValueError('Checkpoint record identity differs')
+    records=pd.read_csv(record)
+    # Older checkpoints wrote an object-typed guide label member. Never unpickle
+    # it: the independently hashed companion CSV supplies the same saved order.
+    profiles,proof=members(source/(name+'_profiles_checkpoint.npz'),['old','new','gene_ids'])
+    if profiles['old'].shape!=profiles['new'].shape or profiles['old'].shape!=(len(records),len(profiles['gene_ids'])):raise ValueError('Checkpoint axes differ')
+    profiles['guides']=records.guide.to_numpy(dtype=str)
+    return profiles,records
+
+
 def matched_coverage(plan,ratio=1.5):
     return ((plan.NTC_cells_a/plan.cells_a).between(1/ratio,ratio)
             &(plan.NTC_cells_b/plan.cells_b).between(1/ratio,ratio)
@@ -49,8 +61,7 @@ def run(config):
     source=Path(config['source']);out=Path(config['output']);out.mkdir(parents=True,exist_ok=False)
     revision=Path(config['public_revision']);baseline=Path(config['public_baseline'])
     summary=json.loads((source/'summary.json').read_text());common=pd.read_csv(source/'common_RNA.csv').gene_id.astype(str).to_numpy()
-    paper_profiles,proof=members(source/'kolf_profiles_checkpoint.npz',['old','new','gene_ids','guides'])
-    paper_records=pd.read_csv(source/'kolf_records.csv');lookup={g:i for i,g in enumerate(paper_records.guide.astype(str))}
+    paper_profiles,paper_records=load_checkpoint(source,'kolf');lookup={g:i for i,g in enumerate(paper_records.guide.astype(str))}
     ctrl,effects,control_proof=public_control_effects(revision,paper_profiles['gene_ids'])
     nc_lookup={g:i for i,g in enumerate(ctrl.key.astype(str))}
     frozen=pd.read_csv(baseline/'tables/diagnostic_matched_backgrounds.csv')
@@ -88,7 +99,7 @@ def run(config):
             if sha(p)!=sha(target):raise ValueError('Preserved point copy differs')
     for name,plan in plans.items():
         if name=='kolf':profiles=paper_profiles
-        else:profiles,_=members(source/(name+'_profiles_checkpoint.npz'),['old','new','gene_ids','guides'])
+        else:profiles,_=load_checkpoint(source,name)
         indices={g:i for i,g in enumerate(profiles['guides'].astype(str))}
         shared=pd.Index(profiles['gene_ids'].astype(str)).get_indexer(common)
         if (shared<0).any():raise ValueError('Common RNA lost')
