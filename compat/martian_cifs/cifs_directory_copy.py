@@ -30,7 +30,7 @@ def _digest(path):
     if (before.st_size, before.st_mtime_ns, before.st_dev) != (
             after.st_size, after.st_mtime_ns, after.st_dev):
         raise ValueError('Publication source changed while hashing')
-    return h.digest()
+    return h.digest(), (after.st_size, after.st_mtime_ns, after.st_dev)
 
 
 def copytree(source, destination, *, copy_function, dirs_exist_ok):
@@ -51,7 +51,8 @@ def copytree(source, destination, *, copy_function, dirs_exist_ok):
     check(dst)
     if not src.is_dir() or dst.resolve() == src.resolve() or dst.resolve().is_relative_to(src.resolve()):
         raise ValueError('An independent publication directory is required')
-    # Inventory before writing; this policy is limited to small result bundles.
+    # Inventory before writing. One GiB covers the measured compressed matrix
+    # directories (396/538 MB) while remaining below the parent work guard.
     entries = []
     total = 0
     def inventory(parent):
@@ -69,7 +70,7 @@ def copytree(source, destination, *, copy_function, dirs_exist_ok):
                 inventory(p)
             else:
                 total += p.stat().st_size
-                if total > 100_000_000:
+                if total > 1_000_000_000:
                     raise ValueError('Publication byte limit exceeded')
     inventory(src)
     dst.mkdir(exist_ok=dirs_exist_ok)
@@ -80,13 +81,16 @@ def copytree(source, destination, *, copy_function, dirs_exist_ok):
         if directory:
             q.mkdir(exist_ok=dirs_exist_ok)
             continue
-        expected = _digest(p)
+        expected, source_identity = _digest(p)
         if q.exists():
-            if not q.is_file() or _digest(q) != expected:
+            if not q.is_file() or _digest(q)[0] != expected:
                 raise ValueError('Existing publication file differs')
         else:
             copy_function(os.fsencode(p) if isinstance(source, bytes) else str(p),
                           os.fsencode(q) if isinstance(destination, bytes) else str(q))
-        if _digest(q) != expected or _digest(p) != expected:
-            raise ValueError('Published content differs or source changed')
+            if _digest(q)[0] != expected:
+                raise ValueError('Published content differs')
+        current = p.stat()
+        if (current.st_size,current.st_mtime_ns,current.st_dev) != source_identity:
+            raise ValueError('Publication source changed during copying')
     return destination
