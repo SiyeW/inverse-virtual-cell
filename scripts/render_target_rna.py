@@ -38,6 +38,8 @@ def render(root,out,font=None):
             within=y.le(200)
             ax.scatter(q.loc[within,'NTC_mean_per_10000'],y.loc[within],s=sizes.loc[within],c=color,alpha=.55,linewidths=.3,edgecolors='white',label=label,zorder=zorder)
             ax.scatter(q.loc[~within,'NTC_mean_per_10000'],np.full((~within).sum(),199.),s=sizes.loc[~within],marker='^',c=color,alpha=.75,linewidths=.3,edgecolors='white',zorder=zorder)
+        pc=p.loc[p.source_control_type.eq('positive_control')]
+        ax.scatter(pc.NTC_mean_per_10000,np.minimum(pc.RNA_remaining_ratio*100,199),s=60,marker='D',facecolors='none',edgecolors='#cf7924',linewidths=1,label='文库标注正控',zorder=4)
         ax.axhline(100,c='#333333',lw=1.1,zorder=1);ax.axhline(50,c='#999999',lw=.7,ls='--',zorder=1)
         ax.set_xscale('log');ax.set_ylim(-3,207);ax.set_xlim(.001,10000)
         ax.set_yticks([0,25,50,75,100,125,150,175,200]);ax.set_title(title,fontsize=12,pad=13)
