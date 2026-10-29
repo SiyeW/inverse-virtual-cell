@@ -49,6 +49,14 @@ def source_identity(path):
 
 
 def strings(node):
+    if isinstance(node, h5py.Group):
+        if set(node.keys()) != {'categories','codes'}:
+            raise ValueError('Unsupported H5AD string encoding')
+        codes = node['codes'][()]
+        categories = strings(node['categories'])
+        if (codes < 0).any() or (codes >= len(categories)).any():
+            raise ValueError('Missing or invalid categorical axis identity')
+        return categories[codes]
     return node.asstr()[()]
 
 

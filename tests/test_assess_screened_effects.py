@@ -3,8 +3,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+import h5py
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
-from assess_screened_effects import revised_mean, pair_plan, reference_row
+from assess_screened_effects import revised_mean, pair_plan, reference_row, read_removed, source_identity
 
 
 def test_subtraction_is_exactly_the_kept_population_mean():
@@ -31,3 +32,29 @@ def test_background_plan_is_coverage_based_disjoint_and_reproducible():
         assert not {r.guide_a,r.guide_b}&{r.other_a,r.other_b}
         targets=d.set_index('guide').target
         assert targets[r.other_a]!=targets[r.other_b]
+
+
+def test_h5ad_categorical_axes_and_checkpoint_resume_skip_data(tmp_path,monkeypatch):
+    source=tmp_path/'cells.h5ad'
+    with h5py.File(source,'w') as f:
+        for name,values,index in [('obs',['bc1','bc2'],'cell_barcode'),('var',['rna1','rna2'],'feature_id')]:
+            group=f.create_group(name);group.attrs['_index']=index
+            cat=group.create_group(index)
+            cat.create_dataset('categories',data=np.asarray(values,dtype=h5py.string_dtype()))
+            cat.create_dataset('codes',data=[0,1])
+        node=f.create_group('layers/counts');node.attrs['encoding-type']='csr_matrix'
+        node.create_dataset('data',data=[3,1,2]);node.create_dataset('indices',data=[0,1,1]);node.create_dataset('indptr',data=[0,2,3])
+    config=dict(path=str(source),identity=source_identity(source),format='csr_h5ad_counts')
+    cells=pd.DataFrame(dict(cell_barcode=['bc2','bc1'],total_counts=[2,4]))
+    genes=pd.DataFrame(dict(gene_id=['rna2','rna1']))
+    request=[dict(row=1,target_column=1,target_count=3)]
+    rows,proof=read_removed(config,cells,genes,request,tmp_path/'cache',lambda *a,**k:None)
+    np.testing.assert_array_equal(rows[1].toarray(),[[1,3]])
+    old=h5py.Dataset.__getitem__
+    def refuse_data(self,key):
+        if self.name in ['/layers/counts/data','/layers/counts/indices']:raise AssertionError('accepted payload reread')
+        return old(self,key)
+    monkeypatch.setattr(h5py.Dataset,'__getitem__',refuse_data)
+    resumed,proof=read_removed(config,cells,genes,request,tmp_path/'cache',lambda *a,**k:None)
+    np.testing.assert_array_equal(resumed[1].toarray(),[[1,3]])
+    assert proof['logical_array_bytes']==0
