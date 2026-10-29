@@ -60,6 +60,7 @@ def plot(summaries,directory):
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
     import numpy as np
     plt.rcParams.update({'font.sans-serif':['Microsoft YaHei','Noto Sans CJK SC','DejaVu Sans'],
                          'axes.unicode_minus':False,'font.size':11,'svg.fonttype':'none'})
@@ -90,12 +91,14 @@ def plot(summaries,directory):
             if n>=5:ax.text(depth,alt,str(n),ha='center',va='center',fontsize=8,color='#243440')
         limit=shared_count_limit
         if points:
-            ax.plot([.75,limit],[.75,limit],color='#858585',lw=.8,ls='--',zorder=0)
-            ax.set_xscale('log');ax.set_yscale('log');ax.set_xlim(.75,limit);ax.set_ylim(.75,limit)
+            ax.plot([.6,limit],[.6,limit],color='#858585',lw=.8,ls='--',zorder=0)
+            ax.set_xscale('log');ax.set_yscale('log');ax.set_xlim(.6,limit);ax.set_ylim(.6,limit)
             ticks=[x for x in [1,2,5,10,20,50,100,200,500,1000,2000,5000,10000] if x<=limit]
             if len(ticks)>8:ticks=[x for x in ticks if x in [1,5,10,50,100,500,1000,5000,10000]]
             ax.set_xticks(ticks,[str(x) for x in ticks]);ax.set_yticks(ticks,[str(x) for x in ticks])
-            ax.minorticks_off();ax.legend(loc='upper left',bbox_to_anchor=(0,.84),frameon=False,fontsize=9,markerscale=.7)
+            ax.minorticks_off()
+            handles=[Line2D([],[],ls='',marker='o',markersize=6,color=c,label=l) for c,l in [('#aeb8c0','比对读段中观察到'),('#28708f','变异检测工具也检出')]]
+            ax.legend(handles=handles,loc='upper left',bbox_to_anchor=(0,.84),frameon=False,fontsize=9)
         else:ax.text(.5,.5,'本次未观察到由对应sgRNA记录支持的插入/缺失',ha='center',va='center',wrap=True,transform=ax.transAxes,fontsize=10)
         ax.set_xlabel('该位置可检查的RNA分子数');ax.set_ylabel('其中支持该插入/缺失的RNA分子数')
         ax.set_title('每种插入/缺失有多少RNA分子支持？',pad=12)
@@ -103,7 +106,7 @@ def plot(summaries,directory):
         ntc_also=sum(p['NTC_alt']>0 for p in points);ntc_seen=len(points)-s['indel_rows_without_NTC_opportunity']
         ax.text(.02,.98,f"{len(points)}个序列变化组合，涉及{len({p['guide'] for p in points})}条sgRNA\nNTC同位点有覆盖：{ntc_seen}；也见同种变化：{ntc_also}",va='top',transform=ax.transAxes,fontsize=9)
     fig.subplots_adjust(left=.22,right=.98,top=.94,bottom=.15,wspace=.73,hspace=.58)
-    fig.text(.5,.066,'每个组合是一条sgRNA靶向区域内的一种插入/缺失；重叠组合合并成圆，圆面积表示组合数，数字标出≥5处的重叠数。\n对角线表示该位置可检查的分子都支持这种变化；两列同尺度。分子按条码/UMI/基因标记去PCR重复，可来自同一条码。\n斜线表示读取触及上限；序列变化仍是RNA候选证据，未检出不代表未编辑，不能据此给出DNA或功能KO效率。',ha='center',va='center',fontsize=9.3,linespacing=1.6)
+    fig.text(.5,.066,'每个组合是一条sgRNA靶向区域内的一种插入/缺失；圆面积表示组合数，同一坐标重叠≥5个组合时标出数量。\n对角线表示该位置可检查的分子都支持这种变化；两列同尺度。分子按条码/UMI/基因标记去PCR重复，可来自同一条码。\n斜线表示读取触及上限；序列变化仍是RNA候选证据，未检出不代表未编辑，不能据此给出DNA或功能KO效率。',ha='center',va='center',fontsize=9.3,linespacing=1.6)
     directory.mkdir(parents=True,exist_ok=True)
     for suffix in ['png','svg']:fig.savefig(directory/('全体sgRNA序列证据.'+suffix),dpi=300,facecolor='white')
     plt.close(fig)
