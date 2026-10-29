@@ -50,6 +50,12 @@ def source_identity(path):
 
 def strings(node):
     if isinstance(node, h5py.Group):
+        if set(node.keys()) == {'values','mask'}:
+            values = strings(node['values'])
+            mask = node['mask'][()]
+            if mask.shape != values.shape or mask.any():
+                raise ValueError('Missing nullable axis identity')
+            return values
         if set(node.keys()) != {'categories','codes'}:
             raise ValueError('Unsupported H5AD string encoding')
         codes = node['codes'][()]

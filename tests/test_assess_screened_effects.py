@@ -34,14 +34,19 @@ def test_background_plan_is_coverage_based_disjoint_and_reproducible():
         assert targets[r.other_a]!=targets[r.other_b]
 
 
-def test_h5ad_categorical_axes_and_checkpoint_resume_skip_data(tmp_path,monkeypatch):
+@pytest.mark.parametrize('encoding',['categorical','nullable-string-array'])
+def test_h5ad_categorical_axes_and_checkpoint_resume_skip_data(tmp_path,monkeypatch,encoding):
     source=tmp_path/'cells.h5ad'
     with h5py.File(source,'w') as f:
         for name,values,index in [('obs',['bc1','bc2'],'cell_barcode'),('var',['rna1','rna2'],'feature_id')]:
             group=f.create_group(name);group.attrs['_index']=index
-            cat=group.create_group(index)
-            cat.create_dataset('categories',data=np.asarray(values,dtype=h5py.string_dtype()))
-            cat.create_dataset('codes',data=[0,1])
+            cat=group.create_group(index);cat.attrs['encoding-type']=encoding
+            if encoding=='categorical':
+                cat.create_dataset('categories',data=np.asarray(values,dtype=h5py.string_dtype()))
+                cat.create_dataset('codes',data=[0,1])
+            else:
+                cat.create_dataset('values',data=np.asarray(values,dtype=h5py.string_dtype()))
+                cat.create_dataset('mask',data=[False,False])
         node=f.create_group('layers/counts');node.attrs['encoding-type']='csr_matrix'
         node.create_dataset('data',data=[3,1,2]);node.create_dataset('indices',data=[0,1,1]);node.create_dataset('indptr',data=[0,2,3])
     config=dict(path=str(source),identity=source_identity(source),format='csr_h5ad_counts')
