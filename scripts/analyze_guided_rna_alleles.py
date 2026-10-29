@@ -19,6 +19,7 @@ import subprocess
 import time
 import os
 import socket
+from functools import lru_cache
 
 from cache_guided_rna_alignments import atomic,canonical_hash,sha_file,validate_region_receipt,frozen_identity,check_sources
 
@@ -135,6 +136,24 @@ def contextual_flags(read,start,end):
     return skips,soft
 
 
+def has_observed_base(read,start,end,min_bq=20):
+    """Equivalent to the old per-position covers_reference predicate, faster."""
+    if not read.qualities:return False
+    r=read.start;blocked=set()
+    for op,n in read.ops:
+        if op=='I':blocked.add(r-1)
+        if op in 'MDN=X':r+=n
+    r=read.start;q=0
+    for op,n in read.ops:
+        if op in 'M=X':
+            a=max(start,r);b=min(end,r+n)
+            if any(p not in blocked and read.qualities[q+p-r]>=min_bq for p in range(a,b)):return True
+            r+=n;q+=n
+        elif op in 'DN':r+=n
+        elif op in 'IS':q+=n
+    return False
+
+
 def normalize_events(events,reference,header,bcftools,directory):
     source=directory/'observed_events.vcf';normal=directory/'normalized_events.vcf'
     lookup={};lines=['##fileformat=VCFv4.2']
@@ -222,7 +241,7 @@ def analyze_region(cache,receipt,identity,region,task,reference,output,bcftools,
     import pysam
     events={};read_events=[]
     with pysam.FastaFile(reference) as fasta:
-        fetch=fasta.fetch
+        fetch=lru_cache(maxsize=4096)(fasta.fetch)
         for read in reads:
             got=raw_events(read,region,fetch)
             keys=set()
@@ -273,8 +292,7 @@ def analyze_region(cache,receipt,identity,region,task,reference,output,bcftools,
                     if family[0]==guide['sample_id']:
                         if skipped:own_spliced.add(family)
                         if clipped:own_softclip.add(family)
-                    for pos in range(guide['start0'],guide['end0']):
-                        if covers_reference(read,pos,pos+1) is not None:present=True;break
+                    if has_observed_base(read,guide['start0'],guide['end0']):present=True
                     if present:break
                 if present:(own_families if family[0]==guide['sample_id'] else ntc_families).add(family)
             owned=[r for r in variant_rows if r['guide']==guide['guide']]

@@ -1,7 +1,7 @@
 from pathlib import Path
 import sys
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
-from analyze_guided_rna_alleles import Read,raw_events,covers_reference,event_key
+from analyze_guided_rna_alleles import Read,raw_events,covers_reference,event_key,has_observed_base
 
 
 def make(cigar,seq,start=10,flag=0):
@@ -35,3 +35,15 @@ def test_base_quality_and_reference_opportunity():
     assert raw_events(read,region,fetch)==[]
     assert covers_reference(read,15,16) is None
     assert covers_reference(make('10M2I10M','A'*10+'CG'+'A'*10),19,21) is None
+
+
+def test_fast_opportunity_is_identical_to_per_base_definition():
+    import random
+    rng=random.Random(277)
+    for cigar,n in [('100M',100),('10M2I20M3D30M',62),('10M100N20M',30),('3S10M1P2I20M5S',40)]:
+        r=make(cigar,'A'*n)
+        r.qualities=[rng.choice([3,20,40]) for _ in range(n)]
+        for start in range(0,160,3):
+            for length in [1,5,20]:
+                expected=any(covers_reference(r,p,p+1) is not None for p in range(start,start+length))
+                assert has_observed_base(r,start,start+length)==expected
