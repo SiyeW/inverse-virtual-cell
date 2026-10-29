@@ -31,6 +31,13 @@ STYLE={'font.family':'Arial','font.size':9.5,'axes.labelsize':10,
 def sha(p):return hashlib.sha256(Path(p).read_bytes()).hexdigest()
 def numeric_sha(values):return hashlib.sha256(np.asarray(values,dtype='<f8').tobytes()).hexdigest()
 
+def assert_drawn_points(ax,expected):
+    drawn=np.vstack([np.asarray(c.get_offsets(),float) for c in ax.collections])
+    expected=np.asarray(expected,float)
+    assert drawn.shape==expected.shape
+    a=np.lexsort((drawn[:,1],drawn[:,0]));b=np.lexsort((expected[:,1],expected[:,0]))
+    assert np.array_equal(drawn[a],expected[b]),'Scatter offsets do not equal the source values'
+
 def configure(font):
     if font:font_manager.fontManager.addfont(str(font))
     plt.rcParams.update(STYLE)
@@ -72,28 +79,44 @@ def target(root,expected_summary,out):
     tables={d:pd.read_csv(root/d/'guide_target_RNA.csv') for d in DATASETS};previous=pd.read_csv(expected_summary)
     selected={d:select_points(tables[d]) for d in DATASETS};all_x=pd.concat([v[0].NTC_mean_per_10000 for v in selected.values()])
     lo=10**np.floor(np.log10(all_x.min()));hi=10**np.ceil(np.log10(all_x.max()))
-    fig,axes=plt.subplots(1,3,figsize=(12,5.0),sharex=True,sharey=True)
-    fig.subplots_adjust(left=.065,right=.995,bottom=.16,top=.89,wspace=.12)
+    all_positive=pd.concat([100*p.loc[p.RNA_remaining_ratio.gt(0),'RNA_remaining_ratio'] for p,_ in selected.values()])
+    ylo=10**np.floor(np.log10(all_positive.min()));yhi=10**np.ceil(np.log10(all_positive.max()))
+    fig=plt.figure(figsize=(12,5.6))
+    grid=fig.add_gridspec(2,3,left=.065,right=.995,bottom=.18,top=.91,height_ratios=[1,.10],hspace=.10,wspace=.12)
+    axes=[];zeros=[]
+    for i in range(3):
+        ax=fig.add_subplot(grid[0,i],sharex=axes[0] if axes else None,sharey=axes[0] if axes else None)
+        axes.append(ax);zeros.append(fig.add_subplot(grid[1,i],sharex=ax))
     proof=[]
-    for d,title,ax in zip(DATASETS,TITLES,axes):
+    for index,(d,title,ax,zero_ax) in enumerate(zip(DATASETS,TITLES,axes,zeros)):
         p,good=selected[d];old=previous.loc[previous.dataset.eq(d)].iloc[0]
         assert len(p)==int(old.plotted_guides) and int(good.sum())==int(old.guides_NTC_detection_ge10)
         assert np.isclose(100*p.loc[good,'RNA_remaining_ratio'].median(),old.median_RNA_remaining_percent,atol=1e-11,rtol=1e-12)
         for mask,color,alpha in [(~good,'#c5c5c5',.55),(good,'#3a5364',.7)]:
-            q=p.loc[mask];values=100*q.RNA_remaining_ratio;inside=values.le(200)
-            ax.scatter(q.loc[inside,'NTC_mean_per_10000'],values.loc[inside],s=7.5,color=color,alpha=alpha,linewidths=0,zorder=3)
-            ax.scatter(q.loc[~inside,'NTC_mean_per_10000'],np.full((~inside).sum(),200.),s=9,color=color,alpha=alpha,marker='^',linewidths=0,zorder=3)
+            q=p.loc[mask];values=100*q.RNA_remaining_ratio;positive=values.gt(0);not_detected=values.eq(0)
+            assert int(positive.sum()+not_detected.sum())==len(q)
+            ax.scatter(q.loc[positive,'NTC_mean_per_10000'],values.loc[positive],s=7.5,color=color,alpha=alpha,linewidths=0,zorder=3)
+            zero_ax.scatter(q.loc[not_detected,'NTC_mean_per_10000'],np.zeros(int(not_detected.sum())),s=7.5,color=color,alpha=alpha,linewidths=0,zorder=3)
+        positive=p.RNA_remaining_ratio.gt(0);not_detected=p.RNA_remaining_ratio.eq(0)
+        assert_drawn_points(ax,np.column_stack((p.loc[positive,'NTC_mean_per_10000'],100*p.loc[positive,'RNA_remaining_ratio'])))
+        assert_drawn_points(zero_ax,np.column_stack((p.loc[not_detected,'NTC_mean_per_10000'],np.zeros(int(not_detected.sum())))))
         ax.axhline(100,color='#777777',lw=.75,ls='--',zorder=1)
-        ax.set_title(title,pad=8);ax.set_xscale('log');ax.set_xlim(lo,hi);ax.set_ylim(-4,205)
+        ax.set_title(title,pad=8);ax.set_xscale('log');ax.set_yscale('log');ax.set_xlim(lo,hi);ax.set_ylim(ylo,yhi)
         ticks=[10.**e for e in [-4,-2,0,2] if lo<=10.**e<=hi]
         ax.set_xticks(ticks);ax.xaxis.set_major_formatter(ticker.LogFormatterMathtext(10));ax.xaxis.set_minor_locator(ticker.NullLocator())
-        ax.set_yticks([0,50,100,150,200]);ax.grid(False)
+        yticks=[10.**e for e in range(int(np.log10(ylo)),int(np.log10(yhi))+1)]
+        ax.set_yticks(yticks);ax.yaxis.set_major_formatter(ticker.FuncFormatter(lambda v,_:f'{v:g}'));ax.yaxis.set_minor_locator(ticker.NullLocator())
+        ax.tick_params(axis='x',labelbottom=False);ax.tick_params(axis='y',labelleft=index==0);ax.grid(False)
         ax.set_box_aspect(1)
-        clipped=int(p.RNA_remaining_ratio.gt(2).sum());assert clipped==int(old.above200)
+        zero_ax.set_ylim(-.5,.5);zero_ax.set_yticks([0]);zero_ax.set_yticklabels(['0%']);zero_ax.tick_params(axis='y',length=0,labelsize=8.5)
+        zero_ax.spines[['top','right','left']].set_visible(False);zero_ax.grid(False)
+        actual_above200=int(p.RNA_remaining_ratio.gt(2).sum());assert actual_above200==int(old.above200)
         proof.append(dict(dataset=d,source_sha256=sha(root/d/'guide_target_RNA.csv'),plotted_guides=len(p),targets=int(p.target_gene_id.nunique()),
-                          NTC_detection_ge10=int(good.sum()),NTC_detection_lt10=int((~good).sum()),above200=clipped,
+                          NTC_detection_ge10=int(good.sum()),NTC_detection_lt10=int((~good).sum()),above200=actual_above200,
                           original_x_sha256=numeric_sha(p.NTC_mean_per_10000),original_y_ratio_sha256=numeric_sha(p.RNA_remaining_ratio),
-                          guide_axis_sha256=hashlib.sha256('\n'.join(p.guide.astype(str)).encode()).hexdigest()))
+                          guide_axis_sha256=hashlib.sha256('\n'.join(p.guide.astype(str)).encode()).hexdigest(),
+                          positive_points=int(p.RNA_remaining_ratio.gt(0).sum()),zero_points=int(p.RNA_remaining_ratio.eq(0).sum()),
+                          maximum_displayed_positive_percent=float(100*p.RNA_remaining_ratio.max()),scatter_offsets_equal_source_values=True))
     axes[0].set_ylabel('Target RNA remaining (%)')
     fig.supxlabel('Mean normalized target RNA in NTC (UMI/10k)',fontsize=10,y=.035)
     handles=[Line2D([],[],marker='o',markersize=3.5,linestyle='none',color='#3a5364',label='NTC detection ≥10%'),
@@ -104,11 +127,11 @@ def target(root,expected_summary,out):
     for ax in axes:
         box=ax.get_window_extent();panel_ratios.append(float(box.height/box.width))
         assert np.isclose(box.height/box.width,1.,atol=1e-4)
-        assert np.allclose(ax.get_xlim(),[lo,hi]) and np.allclose(ax.get_ylim(),[-4,205])
+        assert np.allclose(ax.get_xlim(),[lo,hi]) and np.allclose(ax.get_ylim(),[ylo,yhi])
     save(fig,out,'02_靶RNA剩余量')
-    return dict(data=proof,x_limits=[float(lo),float(hi)],y_display_limits=[-4,205],upper_display_cap_percent=200,panel_height_to_width=panel_ratios,
+    return dict(data=proof,x_limits=[float(lo),float(hi)],positive_y_log_limits=[float(ylo),float(yhi)],upper_display_cap_percent=None,panel_height_to_width=panel_ratios,
                 all_original_guide_points_retained=True,original_remaining_ratios_unchanged=True,uniform_point_size=True,
-                positive_controls_retained_without_decorative_overlay=True)
+                positive_controls_retained_without_decorative_overlay=True,all_positive_values_at_true_percent=True,zeros_in_separate_true_zero_axis=True,no_pseudocount_added=True)
 
 if __name__=='__main__':
     p=argparse.ArgumentParser();p.add_argument('--variation',type=Path,required=True);p.add_argument('--variation-summary',type=Path,required=True)
