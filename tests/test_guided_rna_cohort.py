@@ -21,10 +21,11 @@ def test_missing_capped_and_unmapped_are_not_negative_edit_calls():
 
 def test_deletion_support_counts_even_when_whole_core_deleted():
     d,c=example()
-    c['variant_rows']=[dict(guide='G3',kind='DEL',guide_alt=2,guide_ref=0,guide_other=0,NTC_alt=0,NTC_ref=0,NTC_other=0)]
+    c['variant_rows']=[dict(guide='G3',chrom='chrToy',pos0=10,ref='ATT',alt='A',kind='DEL',guide_alt=2,guide_ref=0,guide_other=0,NTC_alt=0,NTC_ref=0,NTC_other=0,scan_capped=False,bcftools_candidate_seen=True)]
     s=cohort_summary(d,c)
     assert s['counts'][6]==1 and s['counts'][3]==0
-    assert s['indel_rows_without_NTC_opportunity']==1 and s['points']==[]
+    assert s['indel_rows_without_NTC_opportunity']==1 and len(s['points'])==1
+    assert s['points'][0]['NTC_percent'] is None
 
 
 def test_incomplete_cohort_cannot_be_drawn_as_whole():

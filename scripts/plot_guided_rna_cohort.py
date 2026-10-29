@@ -44,10 +44,10 @@ def cohort_summary(design,cohort):
         own=sum(r['guide_'+k] for k in ['alt','ref','other'])
         ntc=sum(r['NTC_'+k] for k in ['alt','ref','other'])
         if not own:raise ValueError('ALT support without informative RNA family')
-        if not ntc:without_ntc+=1;continue
+        if not ntc:without_ntc+=1
         points.append(dict(guide=r['guide'],chrom=r['chrom'],pos0=r['pos0'],ref=r['ref'],alt=r['alt'],
                            guide_alt=r['guide_alt'],NTC_alt=r['NTC_alt'],guide_n=own,NTC_n=ntc,
-                           guide_percent=100*r['guide_alt']/own,NTC_percent=100*r['NTC_alt']/ntc,
+                           guide_percent=100*r['guide_alt']/own,NTC_percent=100*r['NTC_alt']/ntc if ntc else None,
                            scan_capped=r['scan_capped'],bcftools_candidate_seen=r['bcftools_candidate_seen']))
     return dict(label=cohort['label'],dataset_id=cohort['dataset_id'],design_n=len(targets),observed_n=observed,
                 analyzed_n=len(expected),counts=counts,capped_by_category=capped_by_category,
@@ -75,18 +75,29 @@ def plot(summaries,directory):
         ax.set_xlabel('sgRNA条数（每条只计入一类）');ax.set_title(s['label']+'：全部'+str(s['design_n'])+'条靶向sgRNA',pad=14)
         ax.spines[['top','right']].set_visible(False)
         ax=axs[1,col];points=s['points']
-        for threshold,color,label in [(1,'#b6bec5','仅1个RNA分子支持'),(2,'#28708f','至少2个RNA分子支持')]:
-            selected=[p for p in points if (p['guide_alt']==1 if threshold==1 else p['guide_alt']>=2)]
-            if selected:ax.scatter([p['NTC_percent'] for p in selected],[p['guide_percent'] for p in selected],s=23 if threshold==1 else 34,color=color,alpha=.72,edgecolors='white',linewidths=.4,label=label)
-        ax.plot([0,100],[0,100],color='#858585',lw=.8,ls='--',zorder=0)
-        ax.set(xlim=(-3,103),ylim=(-3,103),xlabel='NTC中支持同一插入/缺失的RNA分子（%）',ylabel='带对应sgRNA的细胞中支持该变化的RNA分子（%）')
-        ax.set_title('靶向区域实际观察到的插入/缺失',pad=12)
+        # Company results show NTC fractions are zero for most events; plotting
+        # those fractions against own fractions collapses the data to a line.
+        # Counts show both the available evidence and ALT support, without
+        # turning 1/1 observed RNA families into an apparent 100% KO rate.
+        for seen,color,label in [(False,'#aeb8c0','仅比对读段中观察到'),(True,'#28708f','bcftools也检出该候选变化')]:
+            selected=[p for p in points if p['bcftools_candidate_seen']==seen]
+            if selected:ax.scatter([p['guide_n'] for p in selected],[p['guide_alt'] for p in selected],s=25 if not seen else 39,color=color,alpha=.72,edgecolors='white',linewidths=.4,label=label)
+        limit=max([p['guide_n'] for p in points],default=10)*1.5
+        if points:
+            ax.plot([.75,limit],[.75,limit],color='#858585',lw=.8,ls='--',zorder=0)
+            ax.set_xscale('log');ax.set_yscale('log');ax.set_xlim(.75,limit);ax.set_ylim(.75,limit)
+            ticks=[x for x in [1,2,5,10,20,50,100,200,500,1000,2000,5000,10000] if x<=limit]
+            if len(ticks)>8:ticks=[x for x in ticks if x in [1,5,10,50,100,500,1000,5000,10000]]
+            ax.set_xticks(ticks,[str(x) for x in ticks]);ax.set_yticks(ticks,[str(x) for x in ticks])
+            ax.minorticks_off();ax.legend(loc='lower right',frameon=False,fontsize=9)
+        else:ax.text(.5,.5,'本次未观察到由对应sgRNA记录支持的插入/缺失',ha='center',va='center',wrap=True,transform=ax.transAxes,fontsize=10)
+        ax.set_xlabel('该位置可检查的RNA分子数');ax.set_ylabel('其中支持该插入/缺失的RNA分子数')
+        ax.set_title('每种插入/缺失实际有多少读段支持？',pad=12)
         ax.set_aspect('equal',adjustable='box');ax.spines[['top','right']].set_visible(False)
-        if points:ax.legend(loc='lower right',frameon=False,fontsize=9)
-        else:ax.text(.5,.5,'没有同时具有自身及NTC可观察分子的插入/缺失点',ha='center',va='center',wrap=True,transform=ax.transAxes,fontsize=10)
-        ax.text(.02,.98,f"{len(points)}个sgRNA–序列变化组合\n另有{s['indel_rows_without_NTC_opportunity']}个因NTC无覆盖未作点",va='top',transform=ax.transAxes,fontsize=9)
+        ntc_also=sum(p['NTC_alt']>0 for p in points);ntc_seen=len(points)-s['indel_rows_without_NTC_opportunity']
+        ax.text(.02,.98,f"{len(points)}个序列变化组合，涉及{len({p['guide'] for p in points})}条sgRNA\nNTC同位点有覆盖：{ntc_seen}；也见同种变化：{ntc_also}",va='top',transform=ax.transAxes,fontsize=9)
     fig.subplots_adjust(left=.22,right=.98,top=.94,bottom=.15,wspace=.73,hspace=.58)
-    fig.text(.5,.066,'每个散点是一条sgRNA靶向区域内的一种插入/缺失；上方表示在对应sgRNA细胞中更常见。\nRNA分子按细胞条码和UMI去重；斜线部分表示读取触及上限。未检出不代表未编辑；图中比例不是DNA或功能KO效率。',ha='center',va='center',fontsize=10,linespacing=1.6)
+    fig.text(.5,.066,'每个散点是一条sgRNA靶向区域内的一种插入/缺失；对角线表示该位置可检查的分子都支持这种变化。\n分子数按条码、UMI及基因标记合并PCR重复后计算，两个分子可来自同一条码；散点两轴按标注数值读数。\n斜线部分表示读取触及上限；候选变化尚非确认的DNA编辑，未检出也不代表未编辑，不能据此给出功能KO效率。',ha='center',va='center',fontsize=9.5,linespacing=1.6)
     directory.mkdir(parents=True,exist_ok=True)
     for suffix in ['png','svg']:fig.savefig(directory/('全体sgRNA序列证据.'+suffix),dpi=300,facecolor='white')
     plt.close(fig)
