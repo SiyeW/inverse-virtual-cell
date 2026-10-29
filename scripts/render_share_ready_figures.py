@@ -41,7 +41,7 @@ def save(fig,out,name):
 
 def variation(root,expected_summary,out):
     points=validate_points(root,10);old=pd.read_csv(expected_summary)
-    fig,ax=plt.subplots(figsize=(12,3.8));fig.subplots_adjust(left=.075,right=.995,bottom=.20,top=.91)
+    fig,ax=plt.subplots(figsize=(10.8,6.0));fig.subplots_adjust(left=.09,right=.99,bottom=.13,top=.94)
     proof=[];ymax=0
     for j,(name,color) in enumerate(zip(DATASETS,COLORS)):
         for i,kind in enumerate(KINDS):
@@ -72,8 +72,8 @@ def target(root,expected_summary,out):
     tables={d:pd.read_csv(root/d/'guide_target_RNA.csv') for d in DATASETS};previous=pd.read_csv(expected_summary)
     selected={d:select_points(tables[d]) for d in DATASETS};all_x=pd.concat([v[0].NTC_mean_per_10000 for v in selected.values()])
     lo=10**np.floor(np.log10(all_x.min()));hi=10**np.ceil(np.log10(all_x.max()))
-    fig,axes=plt.subplots(1,3,figsize=(12,3.65),sharex=True,sharey=True)
-    fig.subplots_adjust(left=.065,right=.995,bottom=.22,top=.87,wspace=.12)
+    fig,axes=plt.subplots(1,3,figsize=(12,5.0),sharex=True,sharey=True)
+    fig.subplots_adjust(left=.065,right=.995,bottom=.16,top=.89,wspace=.12)
     proof=[]
     for d,title,ax in zip(DATASETS,TITLES,axes):
         p,good=selected[d];old=previous.loc[previous.dataset.eq(d)].iloc[0]
@@ -88,6 +88,7 @@ def target(root,expected_summary,out):
         ticks=[10.**e for e in [-4,-2,0,2] if lo<=10.**e<=hi]
         ax.set_xticks(ticks);ax.xaxis.set_major_formatter(ticker.LogFormatterMathtext(10));ax.xaxis.set_minor_locator(ticker.NullLocator())
         ax.set_yticks([0,50,100,150,200]);ax.grid(False)
+        ax.set_box_aspect(1)
         clipped=int(p.RNA_remaining_ratio.gt(2).sum());assert clipped==int(old.above200)
         proof.append(dict(dataset=d,source_sha256=sha(root/d/'guide_target_RNA.csv'),plotted_guides=len(p),targets=int(p.target_gene_id.nunique()),
                           NTC_detection_ge10=int(good.sum()),NTC_detection_lt10=int((~good).sum()),above200=clipped,
@@ -98,8 +99,14 @@ def target(root,expected_summary,out):
     handles=[Line2D([],[],marker='o',markersize=3.5,linestyle='none',color='#3a5364',label='NTC detection ≥10%'),
              Line2D([],[],marker='o',markersize=3.5,linestyle='none',color='#c5c5c5',label='NTC detection <10%')]
     axes[-1].legend(handles=handles,loc='upper right',fontsize=8.5,handletextpad=.3,borderaxespad=.3)
+    fig.canvas.draw()
+    panel_ratios=[]
+    for ax in axes:
+        box=ax.get_window_extent();panel_ratios.append(float(box.height/box.width))
+        assert np.isclose(box.height/box.width,1.,atol=1e-4)
+        assert np.allclose(ax.get_xlim(),[lo,hi]) and np.allclose(ax.get_ylim(),[-4,205])
     save(fig,out,'02_靶RNA剩余量')
-    return dict(data=proof,x_limits=[float(lo),float(hi)],y_display_limits=[-4,205],upper_display_cap_percent=200,
+    return dict(data=proof,x_limits=[float(lo),float(hi)],y_display_limits=[-4,205],upper_display_cap_percent=200,panel_height_to_width=panel_ratios,
                 all_original_guide_points_retained=True,original_remaining_ratios_unchanged=True,uniform_point_size=True,
                 positive_controls_retained_without_decorative_overlay=True)
 
