@@ -39,7 +39,7 @@ def inventory(path):
 
 
 def frozen_identity(task,candidates):
-    return dict(task_id=task['task_id'],producer_commit=task['code_version'],
+    value=dict(task_id=task['task_id'],producer_commit=task['code_version'],
                 BAM=task['source_BAM'],BAM_identity=task['source_BAM_identity'],
                 BAM_index=task['source_index'],BAM_index_identity=task['source_index_identity'],
                 BAM_raw_header_sha256=task['source_BAM_raw_header_sha256'],
@@ -50,6 +50,9 @@ def frozen_identity(task,candidates):
                 guide_contract_sha256=task['guide_contract_sha256'],
                 assignment_sha256=task['assignment_sha256'],
                 candidates_sha256=canonical_hash(candidates))
+    for key in ['dataset_id','source_host','source_input_mode']:
+        if key in task:value[key]=task[key]
+    return value
 
 
 def validate_region_receipt(item,identity,region,path):

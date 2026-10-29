@@ -325,9 +325,23 @@ def main():
     task=json.loads(Path(cfg['task_manifest']).read_text())
     if os.getuid()!=task['expected_owner_uid'] or socket.gethostname()!=task['verified_actual_hostname']:
         raise ValueError('Wrong execution owner or host')
-    if task['canonical_output_root']!='/home/user/data/wusy/260918_perturbseq/lab/analyses/method_comparison/20261030_all_target_editing_r1':
+    allowed=['/home/user/data/wusy/260918_perturbseq/lab/analyses/method_comparison/20261030_all_target_editing_r1',
+             '/home/user/data/wusy/260918_perturbseq/lab/analyses/method_comparison/20261030_all_target_editing_r1/chip01']
+    if task['canonical_output_root'] not in allowed:
         raise ValueError('Wrong parent output namespace')
-    check_sources(task)
+    def verify_inputs():
+        if task.get('source_input_mode')=='verified_imported_RNA_cache_from_Windows_H':
+            if task.get('dataset_id')!='chip01' or not cfg.get('import_receipt_sha256'):raise ValueError('Unapproved imported artifact role')
+            receipt=Path(task['canonical_output_root'])/'import_receipt.json'
+            if sha_file(receipt)!=cfg['import_receipt_sha256']:raise ValueError('Import receipt differs')
+            imported=json.loads(receipt.read_text())
+            if not imported['source_final_identity_verified'] or imported['source_task_manifest_sha256']!=cfg['producer_task_manifest_sha256']:
+                raise ValueError('Imported cache lacks complete source verification')
+            from cache_guided_rna_alignments import inventory
+            if inventory(task['reference_fasta'])!=task['reference_identity'] or inventory(task['reference_index'])!=task['reference_index_identity']:
+                raise ValueError('Analysis reference differs')
+        else:check_sources(task)
+    verify_inputs()
     root=Path(task['canonical_output_root']);out=root/'alleles';out.mkdir(exist_ok=True)
     # The consumer code is separately fixed; cache identity remains producer-bound.
     lock=out/'active.lock';fd=os.open(lock,os.O_CREAT|os.O_EXCL|os.O_WRONLY)
@@ -401,7 +415,7 @@ def main():
         guide_rows=[x for r in regions for x in done[r['region_id']]['guides']]
         variants=[x for r in regions for x in done[r['region_id']]['variants']]
         atomic(out/'all_guide_observations.json',guide_rows);atomic(out/'all_variant_observations.json',variants)
-        check_sources(task)
+        verify_inputs()
         progress('allele_analysis_complete_pending_whole_cohort_interpretation',regions=len(done),guides=len(guide_rows),variants=len(variants))
     except BaseException as exc:progress('failed_pending_recovery',error=repr(exc));raise
     finally:lock.unlink()
