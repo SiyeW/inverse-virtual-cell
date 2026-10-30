@@ -120,7 +120,7 @@ def plot(input_npz,summary_json,out):
     ax[0].set_title('NTC与靶向组分布在哪里？',pad=14)
     hue=np.log10(totals.astype(float));low,high=float(hue.min()),float(hue.max())
     a=ax[1].scatter(xy[order,0],xy[order,1],c=hue[order],s=2,cmap='viridis',vmin=low,vmax=high,alpha=.7,linewidths=0,rasterized=True)
-    bar=fig.colorbar(a,ax=ax[1],fraction=.04,pad=.025);ticks=[np.log10(v) for v in [1000,2000,5000,10000,20000,50000,100000] if low<=np.log10(v)<=high];bar.set_ticks(ticks,[f'{int(10**v):,}' for v in ticks]);bar.set_label('每条记录测到的RNA总量（UMI）',fontsize=10)
+    bar=fig.colorbar(a,ax=ax[1],fraction=.04,pad=.025);ticks=[np.log10(v) for v in [1000,2000,5000,10000,20000,50000,100000] if low<=np.log10(v)<=high];bar.set_ticks(ticks,[f'{round(10**v):,}' for v in ticks]);bar.set_label('每条记录测到的RNA总量（UMI）',fontsize=10)
     ax[1].set_title('同一张图：测到的RNA总量',pad=14)
     fig.suptitle('公司合并数据：筛选RNA响应前的整体RNA状态',fontsize=16,y=.98)
     fig.subplots_adjust(left=.07,right=.96,bottom=.2,top=.86,wspace=.24)
