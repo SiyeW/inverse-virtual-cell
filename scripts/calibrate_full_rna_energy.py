@@ -75,7 +75,8 @@ def run(cfg):
         atomic(out/'input_proof.json',dict(config_contract=contract,records=71664,NTC_records=19342,NTC_guides=106,
             full_query=True,full_NTC=True,real_reference_excludes_whole_query_guide=True,RNA_scope='frozen HVG2000/PCA40',
             test_statistic='released pertpy energy V; standard unbiased U is reported separately',
-            conditional_variant='permutations within label-blind deciles of measured total RNA; no group downsampling',
+            tested_methods=methods,
+            conditional_variant='label-blind total-RNA deciles, or joint total-RNA/detected-RNA deciles as named; no group downsampling',
             inference_scope='company_merged_records_diagnostic; not capture-resolved biological effects'))
         results=[];dest=out/'NTC_guides';dest.mkdir(exist_ok=True)
         for number,g in enumerate(groups):
@@ -112,6 +113,7 @@ def run(cfg):
                                  meets_prespecified_review_guard=bool(flag/len(p)<=cfg['NTC_review_guard_fraction']))
         randomized=[]
         if cfg.get('randomized_label_checks',0):
+            progress('randomized_label_implementation_check',real_NTC_groups_complete=106,checks_per_method=cfg['randomized_label_checks'])
             for method in methods:
                 strata=method_blocks[method];fake=guide.copy();rng=np.random.default_rng(cfg['seed']+91)
                 if strata is None:fake=rng.permutation(fake)
