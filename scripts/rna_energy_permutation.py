@@ -86,6 +86,14 @@ def depth_strata(total_rna, bins=10):
     return np.searchsorted(cuts,np.log1p(values),side='right')
 
 
+def depth_complexity_strata(total_rna, detected_rna, bins=10):
+    """Joint, label-blind quantile blocks of two standard count covariates."""
+    total_rna=np.asarray(total_rna);detected_rna=np.asarray(detected_rna)
+    if total_rna.shape!=detected_rna.shape:raise ValueError('Covariate axes differ')
+    a=depth_strata(total_rna,bins);b=depth_strata(detected_rna,bins)
+    return np.unique(a*bins+b,return_inverse=True)[1]
+
+
 def permutation_pvalue(observed, null):
     null=np.asarray(null)
     tolerance=1e-10*max(1.,abs(float(observed)))
