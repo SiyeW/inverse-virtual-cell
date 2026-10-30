@@ -1,6 +1,6 @@
 """Finite NTC-only reference sensitivity; no targeting outcomes are examined."""
 from pathlib import Path
-import argparse,hashlib,json,os,time,sys
+import argparse,hashlib,json,os,time,sys,atexit
 import numpy as np
 from guide_rna_energy import test_pair,sha,atomic
 
@@ -18,6 +18,10 @@ if __name__=='__main__':
     task=json.loads(Path(cfg['task_manifest']).read_text());op=Path(task['native_directory']);root=Path(task['canonical_output_root'])
     assert (op/'run.exit').read_text().strip()=='0' and not (op/'active.lock').exists()
     assert json.loads((op/'status.json').read_text())['stage']=='NTC_review_required_before_target_tests'
+    lock=op/'reference_diagnosis.lock';fd=os.open(lock,os.O_CREAT|os.O_EXCL|os.O_WRONLY)
+    st=Path('/proc/self/stat').read_text();ticks=int(st[st.rfind(')')+2:].split()[19])
+    os.write(fd,json.dumps(dict(pid=os.getpid(),uid=os.getuid(),startticks=ticks,argv=sys.argv)).encode());os.close(fd)
+    atexit.register(lambda:lock.unlink(missing_ok=True))
     if sha(cfg['input_path'])!=cfg['input_SHA256'][cfg['input_path']]:raise ValueError('RNA input differs')
     with np.load(cfg['input_path'],allow_pickle=False) as z:pc=z['PCA'];bc=z['cell_barcode'];labels=z['guide'];roles=z['role'];totalRNA=z['total_RNA']
     ntc_idx=np.flatnonzero(roles=='non_targeting_control');ntc=pc[ntc_idx].astype(float);mean=ntc.mean(axis=0);cov=np.cov(ntc,rowvar=False);inverse=np.linalg.inv(cov)
@@ -42,7 +46,7 @@ if __name__=='__main__':
             delta=pc[reference].mean(axis=0)-mean
             rows.append(dict(guide=str(g),n=n,**{k:v for k,v in stats.items() if k in ['pvalue','energy_unbiased']},
                              query_median_RNA=float(np.median(totalRNA[query])),reference_median_RNA=float(np.median(totalRNA[reference])),reference_centroid_scaled_diagnostic=float(n*delta@inverse@delta)))
-            atomic(op/'reference_diagnosis.status.json',dict(at=time.strftime('%Y-%m-%dT%H:%M:%S%z'),case=case,completed=i+1,total=106))
+            atomic(op/'reference_diagnosis.status.json',dict(at=time.strftime('%Y-%m-%dT%H:%M:%S%z'),pid=os.getpid(),case=case,completed=i+1,total=106))
         item=dict(case=case,seed=seed,permutations=1999,NTC_guides=106,raw_p_lt05_count=sum(r['pvalue']<.05 for r in rows),rows=rows)
         atomic(file,item);result.append(item)
     barcode_index={b:i for i,b in enumerate(bc)};old=[]
