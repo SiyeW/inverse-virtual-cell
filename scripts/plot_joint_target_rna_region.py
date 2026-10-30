@@ -32,7 +32,7 @@ def plot(source,output):
         ax.spines[['top','right']].set_visible(False)
         ax.text(.5,-.24,f"No assigned records: {s['no_assigned_records']} / {s['design_guides']} designs",transform=ax.transAxes,ha='center',fontsize=9)
     axes[0].set_ylabel('Number of sgRNAs')
-    fig.suptitle('Target RNA detection and local RNA evidence',fontsize=12,y=.99)
+    fig.suptitle('Target RNA detection and reads in the sgRNA target region',fontsize=12,y=.99)
     legend=[Patch(facecolor=colors['observed'],label='Regional RNA observed'),Patch(facecolor=colors['not_observed'],label='No regional RNA observed'),
         Patch(facecolor='white',edgecolor='#62696D',hatch='///',label='Region not assessable')]
     fig.legend(handles=legend,loc='lower center',bbox_to_anchor=(.5,.005),ncol=3,frameon=False,fontsize=9,
