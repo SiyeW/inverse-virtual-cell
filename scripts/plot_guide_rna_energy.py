@@ -24,12 +24,12 @@ def draw(table,summary_file,points_file,out):
         ax.scatter(frame.loc[mask,'energy_unbiased'],y[mask],s=26,c=color,alpha=.7,linewidths=.35,edgecolors='white',label=label)
     ax.axvline(0,color='#a6aaae',lw=.7);ax.axhline(-np.log10(.05),color='#555d63',ls='--',lw=.9)
     ax.text(.98,-np.log10(.05),' 校正P＝0.05',transform=ax.get_yaxis_transform(),ha='right',va='bottom',fontsize=10,color='#51595f')
-    ax.set_xlabel('整体RNA差异（样本量校正E-distance）');ax.set_ylabel('统计支持（−log₁₀ 校正P）')
-    ax.set_title('每条sgRNA与NTC的整体RNA状态差异'+('\n对照存在背景差异，本图仅作诊断' if descriptive else ''),pad=16);ax.spines[['top','right']].set_visible(False)
+    ax.set_xlabel('整体RNA差异（E-distance无偏估计）');ax.set_ylabel('统计支持（−log10 校正P）')
+    ax.set_title('每条sgRNA与NTC的整体RNA状态差异'+('\n公司合并数据：靶向组与NTC均有差异信号' if descriptive else ''),pad=16,fontsize=14);ax.spines[['top','right']].set_visible(False)
     ax.legend(frameon=False,loc='upper left',fontsize=10)
     d=summary['calibration'];n_hit=int((target&sig).sum());n_ctrl=int((ntc&sig).sum())
-    middle=f'NTC诊断：原始P＜0.05为{d["raw_p_lt05_count"]}/106；'+('对照未通过区分检查，统计差异不能直接归因于目标基因。' if descriptive else '未见明显异常不等于已证明全库误选率。')
-    fig.text(.5,.09,f'每点一条sgRNA；靶向组中{n_hit}条、NTC中{n_ctrl}条满足本次校正P＜0.05（统计信号）。\n'+middle+'\n负E值是有限样本估计的波动，不表示RNA下降；这不是可靠RNA响应名单，也不是DNA或功能KO效率。',ha='center',va='center',fontsize=9.3,linespacing=1.7)
+    middle=('NTC也有较多差异信号，不能把线上方的靶向sgRNA直接认定为目标基因效应。' if descriptive else '未见明显NTC异常不等于已证明全库误选率。')
+    fig.text(.5,.075,f'每点一条sgRNA；校正P＜0.05：靶向 {n_hit}/{int(target.sum())}（{n_hit/target.sum():.1%}），NTC {n_ctrl}/{int(ntc.sum())}（{n_ctrl/ntc.sum():.1%}）。\n'+middle,ha='center',va='center',fontsize=9.5,linespacing=1.8)
     for ext in ['png','svg']:fig.savefig(out/('逐sgRNA整体RNA差异.'+ext),dpi=300,facecolor='white')
     plt.close(fig)
     with np.load(points_file,allow_pickle=False) as z:xy=z['UMAP'];roles=z['role'];labels=z['guide'];barcodes=z['cell_barcode']
@@ -41,14 +41,15 @@ def draw(table,summary_file,points_file,out):
     if descriptive:
         score=pd.Series(-np.log10(frame.pvalue_adj.to_numpy()),index=frame.guide).loc[labels].to_numpy()
         artist=ax.scatter(xy[order,0],xy[order,1],c=score[order],s=2,alpha=.6,cmap='viridis',vmin=0,vmax=max(float(score.max()),1.4),linewidths=0,rasterized=True)
-        cax=fig.add_axes([.88,.30,.023,.43]);bar=fig.colorbar(artist,cax=cax);bar.set_label('组级统计信号（−log₁₀ 校正P）',fontsize=9)
+        cax=fig.add_axes([.88,.30,.023,.43]);bar=fig.colorbar(artist,cax=cax);bar.set_label('统计支持（−log10 校正P）',fontsize=9)
     else:ax.scatter(xy[order,0],xy[order,1],c=colors[order],s=2,alpha=.5,linewidths=0,rasterized=True)
     ax.set_aspect('equal',adjustable='box');ax.set_xlabel('UMAP 1');ax.set_ylabel('UMAP 2');ax.spines[['top','right']].set_visible(False)
-    ax.set_title('同一UMAP：各sgRNA组的统计差异信号\n（含NTC背景差异，仅作诊断）' if descriptive else '同一RNA状态图：标出差异sgRNA所在的记录',pad=16,fontsize=13)
+    ax.set_title('同一UMAP：按sgRNA的检验结果着色\n同一sgRNA对应的记录使用同一颜色' if descriptive else '同一RNA状态图：标出差异sgRNA所在的记录',pad=16,fontsize=13)
     legend=[('#bf7541',f'携带差异sgRNA（{int(marked.sum()):,}条记录）'),('#447d9e',f'NTC（{int(isntc.sum()):,}条记录）'),('#c4c7ca','其它记录')]
     if not descriptive:ax.legend(handles=[Line2D([],[],marker='o',ls='',color=c,markersize=6,label=l) for c,l in legend],frameon=False,fontsize=9.5,loc='upper right')
-    second='颜色来自该记录所携带sgRNA的组级检验，不是单细胞响应或KO标签；对照异常仍未解决。' if descriptive else '橙色表示“携带通过组级差异条件的sgRNA”，不表示该细胞已被判定响应或KO。'
-    fig.text(.5,.085,'沿用未按响应选择的71,664条记录及原UMAP坐标，没有重新拟合来拉开各组。\n'+second,ha='center',va='center',fontsize=9.2,linespacing=1.7)
+    second='NTC也有差异信号，因此亮色点不等于KO成功。' if descriptive else '橙色不表示该细胞已被判定响应或KO。'
+    first='颜色越亮，该sgRNA组差异的统计支持越强，不是单细胞响应强弱。' if descriptive else '沿用71,664条记录及原UMAP坐标，没有重新拟合。'
+    fig.text(.5,.085,first+'\n'+second,ha='center',va='center',fontsize=9.2,linespacing=1.8)
     for ext in ['png','svg']:fig.savefig(out/('差异sgRNA的UMAP位置.'+ext),dpi=300,facecolor='white')
     plt.close(fig)
     proof=dict(records=71664,tested_guides=785,targeting_groups=int(target.sum()),NTC_groups=int(ntc.sum()),targeting_significant=n_hit,NTC_significant=n_ctrl,marked_records=int(marked.sum()),
