@@ -53,9 +53,10 @@ def run(cfg):
             if sha(p)!=h:raise ValueError('Input differs: '+p)
         with np.load(cfg['pc_input'],allow_pickle=False) as z:
             pc=z['PCA'];labels=z['guide'];roles=z['role'];barcodes=z['cell_barcode'];totals=z['total_RNA'];rna_ids=z['RNA_ids']
-        assert pc.shape==(71664,40) and len(set(barcodes))==71664 and len(np.unique(labels))==785
+        expected_records=cfg.get('expected_records',71664)
+        assert pc.shape==(expected_records,40) and len(set(barcodes))==expected_records and len(np.unique(labels))==cfg.get('expected_guides',785)
         assert hashlib.sha256(json.dumps(rna_ids.tolist()).encode()).hexdigest()==cfg['rna_inventory_sha256']
-        nc=np.flatnonzero(roles=='non_targeting_control');assert len(nc)==19342
+        nc=np.flatnonzero(roles=='non_targeting_control');assert len(nc)==cfg.get('expected_NTC_records',19342)
         methods=cfg.get('methods',['independent','RNA_depth_deciles'])
         if not set(methods)<=set(['independent','RNA_depth_deciles','RNA_depth_and_complexity']):raise ValueError('Unknown method')
         complexity=None
@@ -64,20 +65,21 @@ def run(cfg):
             complexity=aligned_complexity(cells,barcodes,labels,totals)[nc]
         x=np.asarray(pc[nc],dtype=np.float64);guide=labels[nc];depth=totals[nc]
         del pc
-        old=pd.read_csv(cfg['accepted_effect_table']).set_index('guide',verify_integrity=True)
+        old=pd.read_csv(cfg['accepted_effect_table']).set_index('guide',verify_integrity=True) if cfg.get('accepted_effect_table') else None
         progress('NTC_complete_pair_geometry',records=len(nc),RAM_distance_bytes=int(len(nc)**2*8))
         d=cdist(x,x);np.fill_diagonal(d,0.);row=d.sum(axis=1);total=float(row.sum())
         empty_cross=np.empty((0,len(nc)),dtype=float);empty_query=np.empty((0,0),dtype=float)
-        blocks=depth_strata(depth,10);groups=sorted(np.unique(guide));assert len(groups)==106
+        blocks=depth_strata(depth,10);groups=sorted(np.unique(guide));assert len(groups)==cfg.get('expected_NTC_guides',106)
+        ng=len(groups)
         method_blocks={'independent':None,'RNA_depth_deciles':blocks}
         if complexity is not None:method_blocks['RNA_depth_and_complexity']=depth_complexity_strata(depth,complexity,10)
         contract=hashlib.sha256(json.dumps(cfg,sort_keys=True).encode()).hexdigest()
-        atomic(out/'input_proof.json',dict(config_contract=contract,records=71664,NTC_records=19342,NTC_guides=106,
+        atomic(out/'input_proof.json',dict(config_contract=contract,records=expected_records,NTC_records=len(nc),NTC_guides=ng,
             full_query=True,full_NTC=True,real_reference_excludes_whole_query_guide=True,RNA_scope='frozen HVG2000/PCA40',
             test_statistic='released pertpy energy V; standard unbiased U is reported separately',
             tested_methods=methods,
             conditional_variant='label-blind total-RNA deciles, or joint total-RNA/detected-RNA deciles as named; no group downsampling',
-            inference_scope='company_merged_records_diagnostic; not capture-resolved biological effects'))
+            inference_scope=cfg.get('input_scope','company_merged_records_diagnostic; not capture-resolved biological effects'),accepted_effect_bridge_available=old is not None))
         results=[];dest=out/'NTC_guides';dest.mkdir(exist_ok=True)
         for number,g in enumerate(groups):
             file=dest/(hashlib.sha256(str(g).encode()).hexdigest()[:20]+'.json')
@@ -86,8 +88,8 @@ def run(cfg):
             else:
                 selected=np.flatnonzero(guide==g).astype('int32');n=len(selected);m=len(nc)-n
                 obs=subset_statistics(selected[None,:],d,empty_cross,empty_query,row,total)[0]
-                expected=float(old.loc[str(g),'energy_unbiased'])
-                if not np.isclose(obs[1],expected,atol=1e-8,rtol=1e-7):raise ValueError('Accepted full-reference energy bridge failed: '+str(g))
+                expected=float(old.loc[str(g),'energy_unbiased']) if old is not None else float('nan')
+                if old is not None and not np.isclose(obs[1],expected,atol=1e-8,rtol=1e-7):raise ValueError('Accepted full-reference energy bridge failed: '+str(g))
                 result=dict(guide=str(g),n_query=n,n_reference=m,energy_V=float(obs[0]),energy_U=float(obs[1]),accepted_energy_U=expected,contract=contract)
                 for method in methods:
                     strata=method_blocks[method]
@@ -99,7 +101,7 @@ def run(cfg):
                         null_U_mean=float(null[:,1].mean()),null_U_SD=float(null[:,1].std(ddof=1)))
                 atomic(file,result)
             results.append(result)
-            progress('NTC_full_reference_calibration',completed=len(results),total=106,last_guide=str(g),last_n=int(result['n_query']),
+            progress('NTC_full_reference_calibration',completed=len(results),total=ng,last_guide=str(g),last_n=int(result['n_query']),
                      last_guide_seconds=sum(result[k]['seconds'] for k in methods))
         rows=[]
         for r in results:
@@ -113,7 +115,7 @@ def run(cfg):
                                  meets_prespecified_review_guard=bool(flag/len(p)<=cfg['NTC_review_guard_fraction']))
         randomized=[]
         if cfg.get('randomized_label_checks',0):
-            progress('randomized_label_implementation_check',real_NTC_groups_complete=106,checks_per_method=cfg['randomized_label_checks'])
+            progress('randomized_label_implementation_check',real_NTC_groups_complete=ng,checks_per_method=cfg['randomized_label_checks'])
             for method in methods:
                 strata=method_blocks[method];fake=guide.copy();rng=np.random.default_rng(cfg['seed']+91)
                 if strata is None:fake=rng.permutation(fake)
@@ -130,9 +132,9 @@ def run(cfg):
             pd.DataFrame(randomized).to_csv(out/'randomized_label_checks.csv',index=False)
         atomic(out/'calibration_summary.json',dict(methods=summary,review_guard_fraction=cfg['NTC_review_guard_fraction'],
             guard_is_diagnostic_not_proof_of_biological_FDR=True,targeting_tests_run=False,candidate_list_produced=False,
-            bridge_max_abs_error=float(np.max(np.abs(frame.energy_U-frame.accepted_energy_U))),config_contract=contract,
+            bridge_max_abs_error=float(np.max(np.abs(frame.energy_U-frame.accepted_energy_U))) if old is not None else None,config_contract=contract,
             randomized_label_checks=dict(tests=len(randomized),raw_P_lt05=sum(r['pvalue']<.05 for r in randomized),biological_validation=False)))
-        progress('NTC_calibration_complete_pending_method_judgment',completed=106,total=106)
+        progress('NTC_calibration_complete_pending_method_judgment',completed=ng,total=ng)
     except BaseException as e:
         progress('failed_pending_recovery',error=repr(e));raise
 
