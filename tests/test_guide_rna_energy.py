@@ -5,6 +5,7 @@ from scipy.spatial.distance import cdist
 from scipy.stats import energy_distance
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
 from guide_rna_energy import energy_v,balanced_values,unbiased_from_balanced_v,monte_carlo_p,test_pair as run_pair,reference_rows
+from diagnose_energy_reference import independent_reference
 
 def test_released_energy_definition_matches_independent_scipy_1D():
     X=np.array([0.,1.,4.,5.]);Y=np.array([2.,3.,7.,9.]);D=cdist(np.r_[X,Y][:,None],np.r_[X,Y][:,None])
@@ -41,3 +42,6 @@ def test_ntc_query_is_fully_excluded_from_its_reference():
     a=reference_rows('N1',labels,roles,barcodes,10,42)
     assert len(a)==10 and not set(a)&set(range(10,20)) and (roles[a]=='non_targeting_control').all()
     assert np.array_equal(a,reference_rows('N1',labels,roles,barcodes,10,42))
+    b=independent_reference('N1',labels,roles,barcodes,10,42)
+    assert not set(b)&set(range(10,20)) and (roles[b]=='non_targeting_control').all()
+    assert np.array_equal(b,independent_reference('N1',labels,roles,barcodes,10,42))
