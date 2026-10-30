@@ -88,7 +88,7 @@ def run(cfg):
             else:
                 selected=np.flatnonzero(guide==g).astype('int32');n=len(selected);m=len(nc)-n
                 obs=subset_statistics(selected[None,:],d,empty_cross,empty_query,row,total)[0]
-                expected=float(old.loc[str(g),'energy_unbiased']) if old is not None else float('nan')
+                expected=float(old.loc[str(g),'energy_unbiased']) if old is not None else None
                 if old is not None and not np.isclose(obs[1],expected,atol=1e-8,rtol=1e-7):raise ValueError('Accepted full-reference energy bridge failed: '+str(g))
                 result=dict(guide=str(g),n_query=n,n_reference=m,energy_V=float(obs[0]),energy_U=float(obs[1]),accepted_energy_U=expected,contract=contract)
                 for method in methods:
