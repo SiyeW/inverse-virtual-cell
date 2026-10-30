@@ -53,8 +53,9 @@ summary$records <- as.integer(table(meta$guide_id)[summary$guide])
 summary$target <- design$target_gene_name[match(summary$guide,design$guide)]
 write.csv(summary,file.path(output,"guide_screen_summary.csv"),row.names=FALSE)
 stage("same_target_guide_comparison")
-raw <- sceptre:::get_response_matrix(s)
-stopifnot(identical(colnames(raw),meta$cell_barcode),identical(rownames(raw),features$response_id))
+source(file.path(dirname(args[[1]]),"bind_sceptre_counts.R"))
+prepared <- readMM(gzfile(file.path(input,"response_counts.mtx.gz")))
+raw <- bind_sceptre_counts(s,prepared,meta,features)
 x <- raw %*% Diagonal(x=10000/meta$total_RNA_full);x@x <- log1p(x@x)
 all_guides <- sort(unique(meta$guide_id));sizes <- table(meta$guide_id)
 membership <- sparseMatrix(i=match(meta$guide_id,all_guides),j=seq_len(nrow(meta)),

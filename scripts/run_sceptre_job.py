@@ -38,11 +38,12 @@ def run(cfg):
         assert not output.exists();output.mkdir()
         env=os.environ|json.loads(Path(cfg['runtime_environment']).read_text())|{
             'OMP_NUM_THREADS':'2','OPENBLAS_NUM_THREADS':'2','MKL_NUM_THREADS':'2','R_MAX_NUM_DLLS':'200'}
-        screen=cfg.get('mode')=='guide_screen'
+        screen=cfg.get('mode') in ['guide_screen','guide_screen_postprocess']
         command=(['/usr/local/bin/Rscript','--vanilla',cfg['R_script'],cfg['summary_R_script'],cfg['input'],cfg['calibration_object'],str(output),str(cfg['seed'])] if screen else
             ['/usr/local/bin/Rscript','--vanilla',cfg['R_script'],'--run',cfg['input'],str(output),
              cfg['mechanism'],str(cfg['pairs']),str(cfg['seed']),
              ','.join(str(expected[k]) for k in ['records','NTC_records','NTC_guides','candidate_guides'])])
+        if cfg.get('mode')=='guide_screen_postprocess':command.append(cfg['completed_output'])
         begin=time.monotonic()
         with (native/'R.stdout').open('w') as out,(native/'R.stderr').open('w') as err:
             child=subprocess.Popen(command,env=env,stdout=out,stderr=err)
@@ -66,6 +67,7 @@ def run(cfg):
             required=['NTC_guide_summary.csv','gate_status.tsv','sessionInfo.txt']
             targeting=(output/'guide_screen_summary.csv').exists()
             if targeting:required+=['guide_screen_summary.csv','same_target_pairs.csv','screen_summary.csv']
+            if cfg.get('mode')=='guide_screen_postprocess':required+=['count_binding_proof.tsv']
             if targeting and cfg.get('energy_config'):
                 state('compute_fixed_PC_effect_sizes_after_screen')
                 with (native/'energy.stdout').open('w') as out,(native/'energy.stderr').open('w') as err:

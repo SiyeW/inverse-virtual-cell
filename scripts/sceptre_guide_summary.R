@@ -2,8 +2,9 @@
 # These are expression-association candidates, never DNA or functional KO calls.
 guide_omnibus <- function(tests,guides,family_sizes,alpha=.05) {
   stopifnot(!anyDuplicated(guides),all(guides %in% names(family_sizes)))
+  grouped <- split(tests,tests$grna_target)
   rows <- lapply(guides,function(id) {
-    t <- tests[tests$grna_target==id,,drop=FALSE];p <- t$p_value[is.finite(t$p_value)]
+    t <- grouped[[id]];p <- t$p_value[is.finite(t$p_value)]
     stopifnot(all(p>=0 & p<=1),length(p)<=family_sizes[[id]])
     data.frame(guide=id,RNA_family=family_sizes[[id]],testable_RNAs=length(p),
       minimum_RNA_p=if(length(p))min(p) else 1,
