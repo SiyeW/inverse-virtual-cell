@@ -115,15 +115,15 @@ def plot(input_npz,summary_json,out):
     fig,ax=plt.subplots(1,2,figsize=(11.8,6.0),sharex=True,sharey=True)
     for a in ax:a.set_aspect('equal',adjustable='box');a.set_xlabel('UMAP 1');a.set_ylabel('UMAP 2');a.spines[['top','right']].set_visible(False)
     ax[0].scatter(xy[order,0],xy[order,1],c=colors[order],s=2,alpha=.4,linewidths=0,rasterized=True)
-    labels=[('靶向sgRNA：52,128','#ca9365'),('NTC：19,342','#447d9e'),('基因间区对照：194','#939ba1')]
+    labels=[('靶向组：52,128条记录','#ca9365'),('NTC：19,342条记录','#447d9e'),('基因间区对照：194条记录','#939ba1')]
     ax[0].legend(handles=[Line2D([],[],marker='o',ls='',color=c,markersize=6,label=l) for l,c in labels],loc='upper right',frameon=False,fontsize=10)
     ax[0].set_title('NTC与靶向组分布在哪里？',pad=14)
     hue=np.log10(totals.astype(float));low,high=float(hue.min()),float(hue.max())
     a=ax[1].scatter(xy[order,0],xy[order,1],c=hue[order],s=2,cmap='viridis',vmin=low,vmax=high,alpha=.7,linewidths=0,rasterized=True)
-    bar=fig.colorbar(a,ax=ax[1],fraction=.04,pad=.025);ticks=[np.log10(v) for v in [1000,2000,5000,10000,20000,50000,100000] if low<=np.log10(v)<=high];bar.set_ticks(ticks,[f'{round(10**v):,}' for v in ticks]);bar.set_label('每条记录测到的RNA总量（UMI）',fontsize=10)
+    cax=fig.add_axes([.90,.27,.018,.50]);bar=fig.colorbar(a,cax=cax);ticks=[np.log10(v) for v in [1000,2000,5000,10000,20000,50000,100000] if low<=np.log10(v)<=high];bar.set_ticks(ticks,labels=[f'{round(10**v):,}' for v in ticks]);bar.set_label('每条记录测到的RNA总量（UMI）',fontsize=10)
     ax[1].set_title('同一张图：测到的RNA总量',pad=14)
     fig.suptitle('公司合并数据：筛选RNA响应前的整体RNA状态',fontsize=16,y=.98)
-    fig.subplots_adjust(left=.07,right=.96,bottom=.2,top=.86,wspace=.24)
+    fig.subplots_adjust(left=.07,right=.87,bottom=.2,top=.86,wspace=.28)
     fig.text(.5,.075,'每点一条细胞条码记录；只做既有RNA质控、单sgRNA分配及每sgRNA≥10条记录的数量筛选，共71,664条。\n两图坐标完全相同；未按靶RNA下降或RNA响应挑选记录，投影未使用sgRNA标签。图上重叠不等于统计上没有差异。',ha='center',va='center',fontsize=10,linespacing=1.7)
     out=Path(out);out.mkdir(parents=True,exist_ok=True)
     for ext in ['png','svg']:fig.savefig(out/('整体RNA状态概览.'+ext),dpi=300,facecolor='white')
