@@ -55,7 +55,8 @@ check_calibration_references <- function(result, y, meta, nt_guides) {
   invisible(TRUE)
 }
 
-run_real_calibration <- function(input, output, mechanism, pairs, seed) {
+run_real_calibration <- function(input, output, mechanism, pairs, seed,
+                                expected=c(71664L,19342L,106L,678L)) {
   dir.create(output,recursive=FALSE,showWarnings=FALSE)
   stage <- function(x) {
     cat("STAGE ",x," ",format(Sys.time(),"%Y-%m-%dT%H:%M:%S%z"),"\n",sep="");flush.console()
@@ -67,17 +68,17 @@ run_real_calibration <- function(input, output, mechanism, pairs, seed) {
   design <- read.delim(file.path(input,"guide_design.tsv"),check.names=FALSE,stringsAsFactors=FALSE)
   y <- as(readMM(gzfile(file.path(input,"response_counts.mtx.gz"))),"CsparseMatrix")
   g <- as(readMM(gzfile(file.path(input,"assigned_guide_counts.mtx.gz"))),"CsparseMatrix")
-  stopifnot(nrow(meta)==71664L,nrow(features)==2000L,nrow(design)==1196L)
-  stopifnot(identical(dim(y),c(2000L,71664L)),identical(dim(g),c(1196L,71664L)))
+  stopifnot(length(expected)==4L,nrow(meta)==expected[[1]],nrow(features)==2000L,nrow(design)==1196L)
+  stopifnot(identical(dim(y),c(2000L,expected[[1]])),identical(dim(g),c(1196L,expected[[1]])))
   dimnames(y) <- list(features$response_id,meta$cell_barcode)
   dimnames(g) <- list(design$guide,meta$cell_barcode)
   stopifnot(!anyDuplicated(rownames(y)),!anyDuplicated(colnames(y)),all(y@x==round(y@x)))
   nt_guides <- sort(unique(meta$guide_id[meta$role=="non_targeting_control"]))
-  stopifnot(length(nt_guides)==106L,sum(meta$role=="non_targeting_control")==19342L)
+  stopifnot(length(nt_guides)==expected[[3]],sum(meta$role=="non_targeting_control")==expected[[2]])
   stopifnot(setequal(unique(meta$role),c("targeting","positive_control","non_targeting_control","intergenic_control")))
   candidate_guides <- sort(unique(meta$guide_id[meta$role %in% c("targeting","positive_control")]))
   # Role labels are those of the frozen design, not inferred biological hits.
-  stopifnot(length(candidate_guides)==678L)
+  stopifnot(length(candidate_guides)==expected[[4]])
   discovery <- construct_frozen_discovery(features,design,candidate_guides)
   write.csv(discovery$excluded,file.path(output,"excluded_direct_target_pairs.csv"),row.names=FALSE)
   stage("configure_frozen_calls_and_full_RNA_covariates")
@@ -114,6 +115,7 @@ run_real_calibration <- function(input, output, mechanism, pairs, seed) {
 
 args <- commandArgs(trailingOnly=TRUE)
 if(length(args)>0 && args[[1]]=="--run") {
-  stopifnot(length(args)==6,args[[4]] %in% c("permutations","crt"))
-  run_real_calibration(args[[2]],args[[3]],args[[4]],as.integer(args[[5]]),as.integer(args[[6]]))
+  stopifnot(length(args) %in% c(6,7),args[[4]] %in% c("permutations","crt"))
+  expected <- if(length(args)==7) as.integer(strsplit(args[[7]],",",fixed=TRUE)[[1]]) else c(71664L,19342L,106L,678L)
+  run_real_calibration(args[[2]],args[[3]],args[[4]],as.integer(args[[5]]),as.integer(args[[6]]),expected)
 }

@@ -25,7 +25,11 @@ def prepare(cfg):
     a=ad.read_h5ad(cfg['checkpoint'])
     source_cells=pd.read_csv(cfg['cells'],dtype={'cell_barcode':str,'guide_id':str})
     cells,rows=select_records(source_cells,a.obs_names.astype(str).tolist(),10)
-    assert len(cells)==71664 and cells.guide_id.nunique()==785
+    expected=cfg.get('expected',dict(records=71664,guides=785,NTC_records=19342,NTC_guides=106,candidate_guides=678))
+    assert len(cells)==expected['records'] and cells.guide_id.nunique()==expected['guides']
+    nt=cells.role.eq('non_targeting_control')
+    assert int(nt.sum())==expected['NTC_records'] and cells.loc[nt,'guide_id'].nunique()==expected['NTC_guides']
+    assert cells.loc[cells.role.isin(['targeting','positive_control']),'guide_id'].nunique()==expected['candidate_guides']
     for col in ['guide_id','role']:
         assert a.obs.iloc[rows][col].astype(str).tolist()==cells[col].astype(str).tolist()
     qc=pd.read_csv(cfg['QC_table'],dtype={'cell_barcode':str,'guide_id':str}).set_index('cell_barcode',verify_integrity=True).reindex(cells.cell_barcode)
@@ -35,7 +39,7 @@ def prepare(cfg):
     genes=a.var.copy();assert genes.index.is_unique and len(genes)==2000
     x=a.X[rows].tocsr()
     counts,recovery=recover_counts(x,cells.total_counts.to_numpy())
-    assert counts.dtype==np.int32 and counts.shape==(71664,2000)
+    assert counts.dtype==np.int32 and counts.shape==(expected['records'],2000)
     catalogue=pd.read_csv(cfg['catalogue'],keep_default_na=False)
     needed=['guide','target_gene_name','target_gene_id','source_control_type']
     if not set(needed)<=set(catalogue.columns):raise ValueError('Missing design identity columns')
@@ -57,8 +61,8 @@ def prepare(cfg):
         with threadpool_limits(limits=2),gzip.open(temp,'wb',compresslevel=3) as f:io.mmwrite(f,matrix,field='integer',symmetry='general')
         temp.replace(root/name)
     names=['cells.tsv','features.tsv','guide_design.tsv','response_counts.mtx.gz','assigned_guide_counts.mtx.gz']
-    proof=dict(created_at=time.strftime('%Y-%m-%dT%H:%M:%S%z'),input_scope='company_merged_records_diagnostic_not_capture_resolved',records=71664,response_RNAs=2000,
-        observed_guides=785,design_guides=1196,NTC_records=int(meta.role.eq('non_targeting_control').sum()),
+    proof=dict(created_at=time.strftime('%Y-%m-%dT%H:%M:%S%z'),input_scope=cfg.get('input_scope','company_merged_records_diagnostic_not_capture_resolved'),records=expected['records'],response_RNAs=2000,
+        observed_guides=expected['guides'],design_guides=1196,NTC_records=int(meta.role.eq('non_targeting_control').sum()),
         original_counts_or_BAM_read=False,recovery=recovery,guide_matrix='frozen assigned-guide UMI counts only, not a new caller or complete raw capture matrix',
         expression_covariates='authoritative full-RNA totals and detected-RNA counts; not recomputed from the HVG subset',
         no_target_RNA_decrease_filter=True,files={n:dict(bytes=(root/n).stat().st_size,sha256=sha(root/n)) for n in names})

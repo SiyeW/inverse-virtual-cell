@@ -30,7 +30,8 @@ def run(cfg):
         for path,want in cfg['sha256'].items():
             if sha(path)!=want:raise ValueError('Frozen source differs: '+path)
         proof=json.loads(Path(cfg['input_proof']).read_text())
-        assert proof['records']==71664 and proof['response_RNAs']==2000 and proof['NTC_records']==19342
+        expected=cfg.get('expected',dict(records=71664,NTC_records=19342,NTC_guides=106,candidate_guides=678))
+        assert proof['records']==expected['records'] and proof['response_RNAs']==2000 and proof['NTC_records']==expected['NTC_records']
         assert proof['recovery']['roundtrip_bit_exact'] and proof['recovery']['adjacent_integer_uniqueness']
         for name,item in proof['files'].items():
             if sha(Path(cfg['input'])/name)!=item['sha256']:raise ValueError('Prepared count input differs: '+name)
@@ -38,7 +39,8 @@ def run(cfg):
         env=os.environ|json.loads(Path(cfg['runtime_environment']).read_text())|{
             'OMP_NUM_THREADS':'2','OPENBLAS_NUM_THREADS':'2','MKL_NUM_THREADS':'2','R_MAX_NUM_DLLS':'200'}
         command=['/usr/local/bin/Rscript','--vanilla',cfg['R_script'],'--run',cfg['input'],str(output),
-            cfg['mechanism'],str(cfg['pairs']),str(cfg['seed'])]
+            cfg['mechanism'],str(cfg['pairs']),str(cfg['seed']),
+            ','.join(str(expected[k]) for k in ['records','NTC_records','NTC_guides','candidate_guides'])]
         begin=time.monotonic()
         with (native/'R.stdout').open('w') as out,(native/'R.stderr').open('w') as err:
             child=subprocess.Popen(command,env=env,stdout=out,stderr=err)
