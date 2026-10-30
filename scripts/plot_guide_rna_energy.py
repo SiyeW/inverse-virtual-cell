@@ -13,7 +13,8 @@ def draw(table,summary_file,points_file,out):
     plt.rcParams.update({'font.sans-serif':['Microsoft YaHei','Noto Sans CJK SC','DejaVu Sans'],'axes.unicode_minus':False,'font.size':12,'svg.fonttype':'none'})
     frame=pd.read_csv(table);summary=json.loads(Path(summary_file).read_text());out=Path(out);out.mkdir(parents=True,exist_ok=True)
     if len(frame)!=785 or not frame.guide.is_unique or summary['tested_guides']!=785:raise ValueError('Whole guide inventory not complete')
-    if summary['calibration']['review_required']:raise ValueError('NTC diagnostic needs review before candidates may be plotted')
+    descriptive=summary.get('screening_reliable') is False
+    if summary['calibration']['review_required'] and not descriptive:raise ValueError('NTC diagnostic needs review before candidates may be plotted')
     target=frame.role.isin(['targeting','positive_control']);ntc=frame.role.eq('non_targeting_control');inter=frame.role.eq('intergenic_control')
     sig=frame.significant_adj.astype(str).eq('True')
     if not (frame.pvalue_adj.gt(0)&frame.pvalue_adj.le(1)).all():raise ValueError('Invalid adjusted P values')
@@ -24,10 +25,11 @@ def draw(table,summary_file,points_file,out):
     ax.axvline(0,color='#a6aaae',lw=.7);ax.axhline(-np.log10(.05),color='#555d63',ls='--',lw=.9)
     ax.text(.98,-np.log10(.05),' 校正P＝0.05',transform=ax.get_yaxis_transform(),ha='right',va='bottom',fontsize=10,color='#51595f')
     ax.set_xlabel('整体RNA差异（样本量校正E-distance）');ax.set_ylabel('统计支持（−log₁₀ 校正P）')
-    ax.set_title('每条sgRNA与NTC的整体RNA差异',pad=16);ax.spines[['top','right']].set_visible(False)
+    ax.set_title('每条sgRNA与NTC的整体RNA状态差异'+('\n对照存在背景差异，本图仅作诊断' if descriptive else ''),pad=16);ax.spines[['top','right']].set_visible(False)
     ax.legend(frameon=False,loc='upper left',fontsize=10)
     d=summary['calibration'];n_hit=int((target&sig).sum());n_ctrl=int((ntc&sig).sum())
-    fig.text(.5,.09,f'每点一条sgRNA；靶向组中{n_hit}条、NTC中{n_ctrl}条满足本次校正P＜0.05。\nNTC诊断：原始P＜0.05为{d["raw_p_lt05_count"]}/106；未见明显异常不等于已证明全库误选率。\n负E值是有限样本估计的波动，不表示RNA下降；本图只检验RNA状态差异，不是DNA或功能KO效率。',ha='center',va='center',fontsize=9.5,linespacing=1.7)
+    middle=f'NTC诊断：原始P＜0.05为{d["raw_p_lt05_count"]}/106；'+('对照未通过区分检查，统计差异不能直接归因于目标基因。' if descriptive else '未见明显异常不等于已证明全库误选率。')
+    fig.text(.5,.09,f'每点一条sgRNA；靶向组中{n_hit}条、NTC中{n_ctrl}条满足本次校正P＜0.05（统计信号）。\n'+middle+'\n负E值是有限样本估计的波动，不表示RNA下降；这不是可靠RNA响应名单，也不是DNA或功能KO效率。',ha='center',va='center',fontsize=9.3,linespacing=1.7)
     for ext in ['png','svg']:fig.savefig(out/('逐sgRNA整体RNA差异.'+ext),dpi=300,facecolor='white')
     plt.close(fig)
     with np.load(points_file,allow_pickle=False) as z:xy=z['UMAP'];roles=z['role'];labels=z['guide'];barcodes=z['cell_barcode']
@@ -35,18 +37,23 @@ def draw(table,summary_file,points_file,out):
     retained=set(frame.loc[target&sig,'guide']);marked=np.isin(labels,list(retained));isntc=roles=='non_targeting_control'
     colors=np.full(len(xy),'#c4c7ca',dtype='U7');colors[isntc]='#447d9e';colors[marked]='#bf7541'
     order=np.random.default_rng(20261030).permutation(len(xy))
-    fig,ax=plt.subplots(figsize=(7.6,6.8));fig.subplots_adjust(left=.12,right=.97,top=.88,bottom=.20)
-    ax.scatter(xy[order,0],xy[order,1],c=colors[order],s=2,alpha=.5,linewidths=0,rasterized=True)
+    fig,ax=plt.subplots(figsize=(7.6,6.8));fig.subplots_adjust(left=.12,right=.84 if descriptive else .97,top=.86,bottom=.20)
+    if descriptive:
+        score=pd.Series(-np.log10(frame.pvalue_adj.to_numpy()),index=frame.guide).loc[labels].to_numpy()
+        artist=ax.scatter(xy[order,0],xy[order,1],c=score[order],s=2,alpha=.6,cmap='viridis',vmin=0,vmax=max(float(score.max()),1.4),linewidths=0,rasterized=True)
+        cax=fig.add_axes([.88,.30,.023,.43]);bar=fig.colorbar(artist,cax=cax);bar.set_label('组级统计信号（−log₁₀ 校正P）',fontsize=9)
+    else:ax.scatter(xy[order,0],xy[order,1],c=colors[order],s=2,alpha=.5,linewidths=0,rasterized=True)
     ax.set_aspect('equal',adjustable='box');ax.set_xlabel('UMAP 1');ax.set_ylabel('UMAP 2');ax.spines[['top','right']].set_visible(False)
-    ax.set_title('同一RNA状态图：标出差异sgRNA所在的记录',pad=16)
+    ax.set_title('同一UMAP：各sgRNA组的统计差异信号\n（含NTC背景差异，仅作诊断）' if descriptive else '同一RNA状态图：标出差异sgRNA所在的记录',pad=16,fontsize=13)
     legend=[('#bf7541',f'携带差异sgRNA（{int(marked.sum()):,}条记录）'),('#447d9e',f'NTC（{int(isntc.sum()):,}条记录）'),('#c4c7ca','其它记录')]
-    ax.legend(handles=[Line2D([],[],marker='o',ls='',color=c,markersize=6,label=l) for c,l in legend],frameon=False,fontsize=9.5,loc='upper right')
-    fig.text(.5,.085,'沿用未按响应选择的71,664条记录及原UMAP坐标，没有重新拟合来拉开各组。\n橙色表示“携带通过组级差异条件的sgRNA”，不表示该细胞已被判定响应或KO。',ha='center',va='center',fontsize=9.5,linespacing=1.7)
+    if not descriptive:ax.legend(handles=[Line2D([],[],marker='o',ls='',color=c,markersize=6,label=l) for c,l in legend],frameon=False,fontsize=9.5,loc='upper right')
+    second='颜色来自该记录所携带sgRNA的组级检验，不是单细胞响应或KO标签；对照异常仍未解决。' if descriptive else '橙色表示“携带通过组级差异条件的sgRNA”，不表示该细胞已被判定响应或KO。'
+    fig.text(.5,.085,'沿用未按响应选择的71,664条记录及原UMAP坐标，没有重新拟合来拉开各组。\n'+second,ha='center',va='center',fontsize=9.2,linespacing=1.7)
     for ext in ['png','svg']:fig.savefig(out/('差异sgRNA的UMAP位置.'+ext),dpi=300,facecolor='white')
     plt.close(fig)
     proof=dict(records=71664,tested_guides=785,targeting_groups=int(target.sum()),NTC_groups=int(ntc.sum()),targeting_significant=n_hit,NTC_significant=n_ctrl,marked_records=int(marked.sum()),
         points_SHA256=hashlib.sha256(Path(points_file).read_bytes()).hexdigest(),UMAP_coordinates_SHA256=hashlib.sha256(xy.tobytes()).hexdigest(),same_UMAP_no_refit=True,
-        source_test_table_SHA256=hashlib.sha256(Path(table).read_bytes()).hexdigest(),screening_unit='sgRNA group, not individual cell or biological replicate')
+        source_test_table_SHA256=hashlib.sha256(Path(table).read_bytes()).hexdigest(),screening_unit='sgRNA group, not individual cell or biological replicate',screening_reliable=not descriptive)
     (out/'plot_proof.json').write_text(json.dumps(proof,ensure_ascii=False,indent=2))
 
 
