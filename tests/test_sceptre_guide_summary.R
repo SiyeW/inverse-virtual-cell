@@ -1,0 +1,13 @@
+source(commandArgs(trailingOnly=TRUE)[[1]])
+t <- data.frame(grna_target=c("a","a","b"),p_value=c(1e-9,.8,NA_real_))
+r <- guide_omnibus(t,c("a","b","c"),c(a=2000,b=2000,c=2000))
+stopifnot(nrow(r)==3L,r$RNA_association_candidate[[1]],!any(r$RNA_association_candidate[-1]),
+  all(r$guide_p[-1]==1),all(r$testable_RNAs[-1]==0L))
+effects <- matrix(seq_len(12),nrow=4,dimnames=list(NULL,c("a","b","c")))
+meta <- data.frame(guide_id=c("a","b","c"),role="targeting")
+features <- data.frame(response_id=paste0("R",1:4),gene_name=paste0("X",1:4))
+design <- data.frame(guide=c("a","b","c"),target_gene_id=c("T1","T1","T2"),target_gene_name=c("A","A","B"))
+stopifnot(nrow(profile_pairs(effects,meta,features,design,character()))==0L)
+p <- profile_pairs(effects,meta,features,design,c("a","b","c"))
+stopifnot(nrow(p)==1L,p$background_guide=="c",abs(p$same_target_r-1)<1e-12)
+cat("Passed fixed RNA multiplicity, missing tests, empty cohort, deterministic metadata matching\n")

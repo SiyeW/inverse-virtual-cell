@@ -19,7 +19,7 @@ def run(cfg):
     assert native.is_dir() and not (native/'run.exit').exists()
     lock=native/'active.lock';fd=os.open(lock,os.O_WRONLY|os.O_CREAT|os.O_EXCL)
     os.write(fd,json.dumps(dict(pid=os.getpid(),uid=os.getuid(),startticks=startticks(os.getpid()),
-        job='official_sceptre_NTC_calibration',commit=cfg['commit'])).encode());os.close(fd)
+        job='official_sceptre_'+cfg.get('mode','NTC_calibration'),commit=cfg['commit'])).encode());os.close(fd)
     child=None
     def state(stage,**kw):
         p=native/'status.json';tmp=p.with_suffix('.receiving')
@@ -38,9 +38,11 @@ def run(cfg):
         assert not output.exists();output.mkdir()
         env=os.environ|json.loads(Path(cfg['runtime_environment']).read_text())|{
             'OMP_NUM_THREADS':'2','OPENBLAS_NUM_THREADS':'2','MKL_NUM_THREADS':'2','R_MAX_NUM_DLLS':'200'}
-        command=['/usr/local/bin/Rscript','--vanilla',cfg['R_script'],'--run',cfg['input'],str(output),
-            cfg['mechanism'],str(cfg['pairs']),str(cfg['seed']),
-            ','.join(str(expected[k]) for k in ['records','NTC_records','NTC_guides','candidate_guides'])]
+        screen=cfg.get('mode')=='guide_screen'
+        command=(['/usr/local/bin/Rscript','--vanilla',cfg['R_script'],cfg['summary_R_script'],cfg['input'],cfg['calibration_object'],str(output),str(cfg['seed'])] if screen else
+            ['/usr/local/bin/Rscript','--vanilla',cfg['R_script'],'--run',cfg['input'],str(output),
+             cfg['mechanism'],str(cfg['pairs']),str(cfg['seed']),
+             ','.join(str(expected[k]) for k in ['records','NTC_records','NTC_guides','candidate_guides'])])
         begin=time.monotonic()
         with (native/'R.stdout').open('w') as out,(native/'R.stderr').open('w') as err:
             child=subprocess.Popen(command,env=env,stdout=out,stderr=err)
@@ -59,10 +61,23 @@ def run(cfg):
             state('failed_pending_recovery',exit=child.returncode)
             return child.returncode
         required=['calibration_summary.csv','NTC_expression_tests.csv','cohort_contract.tsv','sessionInfo.txt']
+        targeting=False
+        if screen:
+            required=['NTC_guide_summary.csv','gate_status.tsv','sessionInfo.txt']
+            targeting=(output/'guide_screen_summary.csv').exists()
+            if targeting:required+=['guide_screen_summary.csv','same_target_pairs.csv','screen_summary.csv']
+            if targeting and cfg.get('energy_config'):
+                state('compute_fixed_PC_effect_sizes_after_screen')
+                with (native/'energy.stdout').open('w') as out,(native/'energy.stderr').open('w') as err:
+                    energy=subprocess.run([cfg['scientific_python'],cfg['energy_script'],'--config',cfg['energy_config']],
+                        env=os.environ|{'OPENBLAS_NUM_THREADS':'2','OMP_NUM_THREADS':'2','NUMBA_NUM_THREADS':'2','NUMEXPR_NUM_THREADS':'2'},
+                        stdout=out,stderr=err,timeout=600)
+                if energy.returncode:raise RuntimeError('Effect-size export failed; completed expression tests are retained')
+                required+=['energy_by_guide.csv','energy_proof.json']
         for name in required:assert (output/name).is_file()
         receipt=dict(commit=cfg['commit'],official_sceptre_tag='v0.10.3',
             official_sceptre_commit='81d32c6e6e94a9aca84bccbe484ec869ef769087',
-            source_input_proof_sha256=sha(cfg['input_proof']),no_targeting_tests_performed=True,
+            source_input_proof_sha256=sha(cfg['input_proof']),no_targeting_tests_performed=not targeting,
             input_scope=proof['input_scope'],full_frozen_NTC_reference=True,
             additional_cell_sampling_or_QC=False,
             files={name:dict(bytes=(output/name).stat().st_size,sha256=sha(output/name)) for name in required})
