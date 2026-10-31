@@ -20,12 +20,15 @@ def draw(folder,output,identity_table):
         assert r.reference_records==19342-(r.query_records if r.role=='non_targeting_control' else 0)
         assert np.isclose(energy_u(r.query_records,r.reference_records,r.within_query_sum,r.cross_sum,r.within_reference_sum),r.energy_unbiased,atol=1e-10)
     assert not s['query_cells_downsampled'] and not s['reference_NTC_downsampled']
-    target=f.role.isin(['targeting','positive_control']);ntc=f.role.eq('non_targeting_control');assert target.sum()==678 and ntc.sum()==106
+    target=f.role.eq('targeting');positive=f.role.eq('positive_control');ntc=f.role.eq('non_targeting_control')
+    assert target.sum()==659 and positive.sum()==19 and ntc.sum()==106
+    assert not (target & positive).any() and int((target | positive | ntc).sum())==784
     plt.rcParams.update({'font.sans-serif':['Arial','DejaVu Sans'],'font.size':10,'axes.unicode_minus':False,'svg.fonttype':'none'})
     fig,ax=plt.subplots(figsize=(6.7,4.9));fig.subplots_adjust(left=.14,right=.97,top=.90,bottom=.17)
     ax.axhline(0,color='#8a8d91',lw=.65,zorder=1)
-    ax.scatter(f.loc[target,'query_records'],f.loc[target,'energy_unbiased'],s=12,c='#bd8050',alpha=.58,linewidths=0,label='Targeting sgRNAs (n = 678)',zorder=2)
+    ax.scatter(f.loc[target,'query_records'],f.loc[target,'energy_unbiased'],s=12,c='#bd8050',alpha=.58,linewidths=0,label='Other targeting sgRNAs (n = 659)',zorder=2)
     ax.scatter(f.loc[ntc,'query_records'],f.loc[ntc,'energy_unbiased'],s=16,c='#377394',alpha=.82,linewidths=.25,edgecolors='white',label='NTC sgRNAs (n = 106)',zorder=3)
+    ax.scatter(f.loc[positive,'query_records'],f.loc[positive,'energy_unbiased'],s=25,c='#397e62',alpha=.95,linewidths=.35,edgecolors='white',label='Positive controls in library design (n = 19)',zorder=4)
     ax.set_xscale('log');ticks=[10,20,50,100,200,500];ax.set_xticks(ticks);ax.xaxis.set_major_formatter(ScalarFormatter());ax.minorticks_off()
     ax.set_xlim(9.3,max(f.query_records.max(),500)*1.12)
     ax.set_xlabel('Cell barcodes per sgRNA',labelpad=8)
@@ -36,7 +39,12 @@ def draw(folder,output,identity_table):
     for ext in ['png','svg']:fig.savefig(out/f'整体RNA状态差异_全量NTC.{ext}',dpi=300,facecolor='white')
     plt.close(fig)
     description=dict(all785_groups_checked=True,all71664_records_retained=True,full_NTC_reference=True,no_reference_sampling=True,no_response_filter_or_hit_list=True,
-        plotted_targeting_groups=int(target.sum()),plotted_NTC_groups=int(ntc.sum()),intergenic_group_retained_in_table_not_target_vs_NTC_comparison=True,
+        plotted_targeting_groups=int(target.sum()),plotted_positive_control_groups=int(positive.sum()),
+        plotted_targeting_total_including_design_controls=int((target | positive).sum()),
+        plotted_NTC_groups=int(ntc.sum()),intergenic_group_retained_in_table_not_target_vs_NTC_comparison=True,
+        positive_control_identity='pre-existing library design annotation, not experimentally established successful KO',
+        all_eligible_design_positive_guides_shown=True,
+        plotted_coordinate_SHA256=hashlib.sha256(f.loc[target | positive | ntc,['guide','query_records','energy_unbiased']].sort_values('guide').to_csv(index=False).encode('utf-8')).hexdigest(),
         source_table_SHA256=hashlib.sha256((folder/'RNA_state_all_records.csv').read_bytes()).hexdigest(),
         observation_unit='one sgRNA and all eligible records assigned to that sgRNA; not one target gene or one cell',
         model_reference_band_shown=False,confidence_interval_shown=False,figure_language='English')
