@@ -20,8 +20,8 @@ def draw(folder,output,identity_table,guide_design=None,highlight_config=None):
         assert r.reference_records==19342-(r.query_records if r.role=='non_targeting_control' else 0)
         assert np.isclose(energy_u(r.query_records,r.reference_records,r.within_query_sum,r.cross_sum,r.within_reference_sum),r.energy_unbiased,atol=1e-10)
     assert not s['query_cells_downsampled'] and not s['reference_NTC_downsampled']
-    target=f.role.eq('targeting');positive=f.role.eq('positive_control');ntc=f.role.eq('non_targeting_control')
-    assert target.sum()==659 and positive.sum()==19 and ntc.sum()==106
+    target=f.role.eq('targeting');positive=f.role.eq('positive_control');ntc=f.role.eq('non_targeting_control');intergenic=f.role.eq('intergenic_control')
+    assert target.sum()==659 and positive.sum()==19 and ntc.sum()==106 and intergenic.sum()==1
     assert not (target & positive).any() and int((target | positive | ntc).sum())==784
     highlighted=f.guide.isin([]);highlight_summary=[];highlight_points=[];not_plotted=[];offsets={}
     assert (guide_design is None)==(highlight_config is None)
@@ -63,6 +63,11 @@ def draw(folder,output,identity_table,guide_design=None,highlight_config=None):
             ax.annotate(point['guide'],xy=(point['records'],point['energy_unbiased']),xytext=(dx,dy),textcoords='offset points',
                 ha='left' if dx>=0 else 'right',va='bottom' if dy>=0 else 'top',fontsize=7,color='#4d286b',zorder=6,
                 arrowprops=dict(arrowstyle='-',color='#703c99',lw=.4,alpha=.7,shrinkA=1,shrinkB=3))
+    ax.scatter(f.loc[intergenic,'query_records'],f.loc[intergenic,'energy_unbiased'],s=40,marker='^',c='#333333',alpha=1,linewidths=.4,edgecolors='white',label='Intergenic control (n = 1)',zorder=7)
+    for point in f[intergenic].itertuples():
+        ax.annotate(point.guide,xy=(point.query_records,point.energy_unbiased),xytext=(15,42),textcoords='offset points',
+            ha='left',va='bottom',fontsize=7,color='#333333',zorder=7,
+            arrowprops=dict(arrowstyle='-',color='#555555',lw=.4,alpha=.8,shrinkA=1,shrinkB=3))
     ax.set_xscale('log');ticks=[10,20,50,100,200,500];ax.set_xticks(ticks);ax.xaxis.set_major_formatter(ScalarFormatter());ax.minorticks_off()
     ax.set_xlim(9.3,max(f.query_records.max(),500)*1.12)
     ax.set_xlabel('Cell barcodes per sgRNA',labelpad=8)
@@ -75,14 +80,18 @@ def draw(folder,output,identity_table,guide_design=None,highlight_config=None):
     description=dict(all785_groups_checked=True,all71664_records_retained=True,full_NTC_reference=True,no_reference_sampling=True,no_response_filter_or_hit_list=True,
         plotted_targeting_groups=int(other_target.sum()),plotted_highlighted_groups=int(highlighted.sum()),plotted_positive_control_groups=int(positive.sum()),
         plotted_targeting_total_including_design_controls=int((target | positive).sum()),
-        plotted_NTC_groups=int(ntc.sum()),intergenic_group_retained_in_table_not_target_vs_NTC_comparison=True,
+        plotted_NTC_groups=int(ntc.sum()),plotted_intergenic_groups=int(intergenic.sum()),
+        intergenic_group_retained_in_table_not_target_vs_NTC_comparison=False,
+        intergenic_not_part_of_NTC_reference=True,all785_source_groups_plotted=True,
+        intergenic_points=f.loc[intergenic,['guide','query_records','energy_unbiased']].to_dict('records'),
         positive_control_identity='pre-existing library design annotation, not experimentally established successful KO',
         all_eligible_design_positive_guides_shown=True,
         positive_control_color='#e60012',highlighted_genes=highlight_summary,highlighted_points=highlight_points,
         highlighted_guides_not_plotted=not_plotted,all_eligible_requested_guides_shown=True,
         guide_design_SHA256=hashlib.sha256(Path(guide_design).read_bytes()).hexdigest() if guide_design is not None else None,
         highlight_config_SHA256=hashlib.sha256(Path(highlight_config).read_bytes()).hexdigest() if highlight_config is not None else None,
-        plotted_coordinate_SHA256=hashlib.sha256(f.loc[target | positive | ntc,['guide','query_records','energy_unbiased']].sort_values('guide').to_csv(index=False).encode('utf-8')).hexdigest(),
+        previous_784_coordinate_SHA256=hashlib.sha256(f.loc[target | positive | ntc,['guide','query_records','energy_unbiased']].sort_values('guide').to_csv(index=False).encode('utf-8')).hexdigest(),
+        plotted_coordinate_SHA256=hashlib.sha256(f.loc[target | positive | ntc | intergenic,['guide','query_records','energy_unbiased']].sort_values('guide').to_csv(index=False).encode('utf-8')).hexdigest(),
         source_table_SHA256=hashlib.sha256((folder/'RNA_state_all_records.csv').read_bytes()).hexdigest(),
         observation_unit='one sgRNA and all eligible records assigned to that sgRNA; not one target gene or one cell',
         model_reference_band_shown=False,confidence_interval_shown=False,figure_language='English')
