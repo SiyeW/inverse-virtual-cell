@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from explore_editing_rna_cells import cut_position, family_state, covariance_pca
+from explore_editing_rna_cells import cut_position, family_state, covariance_pca, reverse_complement
 from analyze_guided_rna_alleles import Read, raw_events, covers_reference
 
 
@@ -20,6 +20,17 @@ def test_checked_plus_and_minus_canonical_cut_sites():
     result = cut_position(spacer, 'T' * 20, 100, lambda a, b: 'CCA')
     assert result['strand'] == '-' and result['cut0'] == 103
     assert cut_position(spacer, spacer, 100, lambda a, b: 'AAA')['cut0'] is None
+
+
+def test_five_prime_capture_reference_has_reverse_complemented_spacer():
+    # Actual EIF2AK3-2 feature-reference example; the upstream CCN, not the
+    # downstream non-PAM sequence, identifies the guide's opposite strand.
+    window = 'GGCAGCCCCTCACCTGCCGCGCGGTCGCAACTCTGTCTCATCGTCTGGTT'
+    feature_sequence = 'GCCGCGCGGTCGCAACTCTG'
+    spacer = reverse_complement(feature_sequence)
+    result = cut_position(spacer, window[15:35], 100,
+                          lambda a, b: window[a - 85:b - 85])
+    assert result == dict(strand='-', PAM='AGG', cut0=103)
 
 
 def test_splice_skip_is_not_a_deletion_or_reference_coverage():

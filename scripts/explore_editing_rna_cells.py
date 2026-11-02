@@ -154,7 +154,10 @@ def extract_region(root, receipt, catalogue, wanted):
             meta = catalogue[name]
             start, end, chrom = guide['start0'], guide['end0'], region['chrom']
             ref = fetch(chrom, start, end)
-            cut = cut_position(meta['sequence'], ref, start,
+            spacer = meta['sequence']
+            if extract_region.feature_sequence_orientation == 'reverse_complement_of_spacer_5prime_capture':
+                spacer = reverse_complement(spacer)
+            cut = cut_position(spacer, ref, start,
                                lambda a, b: fetch(chrom, a, b))
             own = {k: v for k, v in families.items() if k[0] == guide['sample_id']}
             cells = defaultdict(lambda: dict(regional_families=set(), cut_ref_families=set(),
@@ -229,6 +232,9 @@ def extract_region(root, receipt, catalogue, wanted):
 
 
 def sequence(cfg, progress):
+    extract_region.feature_sequence_orientation = cfg['feature_sequence_orientation']
+    if extract_region.feature_sequence_orientation not in ['spacer_forward', 'reverse_complement_of_spacer_5prime_capture']:
+        raise ValueError('The assay-specific feature sequence orientation must be explicit')
     selected = json.loads(Path(cfg['selected_guides']).read_text())
     extract_region.primary = {r['guide'] for r in selected}
     if len(extract_region.primary) != 197:
