@@ -74,7 +74,7 @@ def primary_summary(data, root):
                 title='A  Local coverage within the 197 sgRNAs')
     ax[0,0].set_ylim(0,max(y)*1.2)
     labels=['All assigned QC records','Any local RNA evidence','Reference RNA across cut ±3 bp',
-            'Indel RNA support','Same indel: ≥2 distinct UMIs (lower bound)']
+            'Indel RNA support','Same indel: ≥2 distinct UMIs']
     yy=np.arange(5)[::-1]
     ax[0,1].scatter(counts,yy,s=48,c=[GRAY,BLUE,GREEN,ORANGE,RED],zorder=3)
     for x,z in zip(counts,yy):ax[0,1].annotate(f'{x:,}',(x,z),xytext=(7,0),textcoords='offset points',va='center')
@@ -102,7 +102,7 @@ def primary_summary(data, root):
     ax[1,1].set(xticks=range(2),xticklabels=['Multiple of 3 bp','Not a multiple of 3 bp'],xlabel='Absolute indel length',
                 ylabel='Guide–indel observations',title='D  Length pattern; reading-frame effect unassigned')
     ax[1,1].set_ylim(0,max(vals)*1.22)
-    fig.suptitle('RNA sequence evidence in 197 sgRNAs targeting 104 loci',fontsize=15,y=1.01)
+    fig.suptitle('RNA sequence evidence: 197 sgRNAs, 104 targets',fontsize=15,y=1.01)
     fig.text(.02,-.025,'Company merged barcode records. Counts are not DNA editing or functional KO rates. Correct target ORFs remain unverified.',fontsize=9)
     fig.tight_layout(w_pad=2.5,h_pad=2.5)
     save(fig,root,'12_site_RNA_evidence_197',True)
