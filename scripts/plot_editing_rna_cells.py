@@ -9,6 +9,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
+from matplotlib.patches import Rectangle
 import numpy as np
 import pandas as pd
 
@@ -78,7 +79,7 @@ def primary_summary(data, root):
     for x,z in zip(counts,yy):ax[0,1].annotate(f'{x:,}',(x,z),xytext=(7,0),textcoords='offset points',va='center')
     ax[0,1].set_xscale('log');ax[0,1].set_xlim(10,70000)
     ax[0,1].set(yticks=yy,yticklabels=labels,xlabel='Number of barcode records (log scale)',
-                title='B  Guide coverage does not imply cell coverage')
+                title='B  Barcode-level RNA observations (overlapping groups)')
     ax[0,1].tick_params(axis='y',length=0,labelsize=9)
     for supported,color,label in [(False,ORANGE,'1 RNA molecule'),(True,BLUE,'≥2 RNA molecules')]:
         rows=[r for r in indels if (r['guide_alt']>=2)==supported]
@@ -91,12 +92,13 @@ def primary_summary(data, root):
     ax[1,0].axvline(0,color='#555555',lw=.8);ax[1,0].axhline(0,color='#b7b7b7',lw=.6)
     ax[1,0].set(xlabel='Indel start relative to predicted cut (bp)',ylabel='Net sequence length change (bp)',
                 title=f'C  All {len(indels)} guide–indel observations')
-    ax[1,0].legend(frameon=False,fontsize=8,loc='lower right')
+    ax[1,0].set_xticks([-18,-15,-12,-9,-6,-3,0,3])
+    ax[1,0].legend(frameon=False,fontsize=8,loc='upper left')
     remainder=Counter(abs(r['length_change'])%3 for r in indels)
-    vals=[remainder[i] for i in range(3)]
-    ax[1,1].bar(range(3),vals,color=[GRAY,BLUE,BLUE],width=.6)
+    vals=[remainder[0],remainder[1]+remainder[2]]
+    ax[1,1].bar(range(2),vals,color=[GRAY,BLUE],width=.55)
     for i,n in enumerate(vals):ax[1,1].text(i,n+1,str(n),ha='center')
-    ax[1,1].set(xticks=range(3),xticklabels=['0','1','2'],xlabel='Absolute indel length, remainder after division by 3',
+    ax[1,1].set(xticks=range(2),xticklabels=['Multiple of 3 bp','Not a multiple of 3 bp'],xlabel='Absolute indel length',
                 ylabel='Guide–indel observations',title='D  Length pattern; reading-frame effect unassigned')
     ax[1,1].set_ylim(0,max(vals)*1.22)
     fig.suptitle('RNA sequence evidence in 197 sgRNAs targeting 104 loci',fontsize=15,y=1.01)
@@ -196,6 +198,71 @@ def variant_diagram(row, display, variants, root, slug):
     save(fig,root,slug)
 
 
+def original_read_alignment(row, display, root, slug):
+    """Display actual stored RNA reads, without inventing full alleles or coverage."""
+    from analyze_guided_rna_alleles import Read
+    molecules=display['molecules']
+    # Several pages preserve all displayed families without unreadably tall PNGs.
+    start,end=display['start0'],display['end0'];reference=display['reference']
+    def visible(item):
+        read=Read(item['SAM'],'display');position=read.start
+        for operation,length in read.ops:
+            if operation in 'MDN=X':
+                if position<end and position+length>start:return True
+                position+=length
+            elif operation=='I' and start<=position<=end:return True
+        return False
+    ordered=sorted([m for m in molecules if visible(m)],key=lambda r:(r['cell_barcode'],r['UMI'],r['GX']))
+    record_numbers={b:i+1 for i,b in enumerate(sorted({m['cell_barcode'] for m in ordered}))}
+    molecule_numbers={}
+    for b in record_numbers:
+        for i,m in enumerate([m for m in ordered if m['cell_barcode']==b]):molecule_numbers[(b,m['UMI'],m['GX'])]=i+1
+    for page,offset in enumerate(range(0,max(1,len(ordered)),45)):
+        current=ordered[offset:offset+45]
+        fig,ax=plt.subplots(figsize=(12.5,max(3.0,1.5+.22*len(current))))
+        ax.set_xlim(-21,len(reference)+1);ax.set_ylim(-len(current)-.7,2.3)
+        ax.axvspan(row['start0']-start-.5,row['end0']-start-.5,color='#f1f3f4',zorder=0)
+        if row['cut0'] is not None:ax.axvline(row['cut0']-start-.5,color=RED,lw=.7,ls='--',zorder=1)
+        for i,base in enumerate(reference):ax.text(i,1.2,base,ha='center',va='center',family='monospace',fontsize=9)
+        ax.text(-1.5,1.2,'Reference',ha='right',va='center',fontsize=9)
+        for j,item in enumerate(current):
+            read=Read(item['SAM'],'display');r=read.start;q=0;y=-j
+            label=f"record {record_numbers[item['cell_barcode']]} / RNA {molecule_numbers[(item['cell_barcode'],item['UMI'],item['GX'])]}"
+            ax.text(-1.5,y,label,ha='right',va='center',family='monospace',fontsize=7)
+            for operation,length in read.ops:
+                if operation in 'M=X':
+                    a,b=max(start,r),min(end,r+length)
+                    if b>a:
+                        ax.add_patch(Rectangle((a-start-.45,y-.12),b-a-.1,.24,facecolor='#c3c9cd',edgecolor='none',zorder=2))
+                        for pos in range(a,b):
+                            ix=q+pos-r;base=read.seq[ix]
+                            if base!=reference[pos-start]:
+                                ax.add_patch(Rectangle((pos-start-.45,y-.18),.9,.36,facecolor='white',edgecolor='none',zorder=3))
+                                color={'A':'#2b8761','C':'#287ba0','G':'#b18020','T':'#c63730'}.get(base,'#666666') if read.qualities[ix]>=20 else '#c2c2c2'
+                                ax.text(pos-start,y,base,ha='center',va='center',family='monospace',fontsize=8,color=color,zorder=4)
+                    r+=length;q+=length
+                elif operation=='D':
+                    a,b=max(start,r),min(end,r+length)
+                    if b>a:ax.plot([a-start-.45,b-start-.55],[y,y],color='#202020',lw=1,zorder=4)
+                    r+=length
+                elif operation=='N':
+                    a,b=max(start,r),min(end,r+length)
+                    if b>a:ax.plot([a-start-.45,b-start-.55],[y,y],color=BLUE,lw=.7,ls=':',zorder=4)
+                    r+=length
+                elif operation=='I':
+                    if start<=r<=end:
+                        ax.text(r-start-.5,y,'▼',color='#8b4b92',ha='center',va='center',fontsize=8,zorder=5)
+                        ax.text(r-start-.5,y+.21,'+'+str(length),color='#8b4b92',ha='center',fontsize=6,zorder=5)
+                    q+=length
+                elif operation=='S':q+=length
+        if not current:ax.text(20,0,'No representative molecule available',ha='center')
+        ax.set_axis_off()
+        fig.suptitle(f"Original RNA alignments — {row['guide']}\n{row['chrom']}:{start+1:,}–{end:,}; {len(ordered)} representatives overlap this view; page {page+1}",fontsize=11,y=.99)
+        fig.text(.03,-.01,'One original representative read per UMI family. Grey: aligned bases; letters: mismatches; black line: deletion; purple: insertion; blue dotted line: splice.',fontsize=7)
+        fig.subplots_adjust(left=.015,right=.995,top=.92,bottom=.04)
+        save(fig,root,slug+f'_reads_{page+1}')
+
+
 def association_overview(case_rows, association, root):
     cases=pd.DataFrame(case_rows);fig,ax=plt.subplots(1,2,figsize=(11.2,4.4))
     for dataset,color,marker,label in [('company',ORANGE,'o','Company records'),('chip01',BLUE,'^','Chip 1')]:
@@ -238,6 +305,7 @@ def main():
     display={r['guide']:r for r in data['company']['display']};site_index=[]
     for i,row in enumerate(primary):
         slug=f'G{i+1:03d}';variant_diagram(row,display[row['guide']],data['company']['variants'],out/'site_figures',slug)
+        original_read_alignment(row,display[row['guide']],out/'site_figures',slug)
         site_index.append(dict(guide=row['guide'],target_gene_id=row['target_gene_id'],file='site_figures/'+slug+'.png'))
     atomic=lambda p,x:Path(p).write_text(json.dumps(x,ensure_ascii=False,indent=2),encoding='utf-8')
     atomic(out/'site_index.json',site_index)
