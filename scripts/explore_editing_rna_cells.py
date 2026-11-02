@@ -54,13 +54,23 @@ def add_same_indel_support(cohort):
         for cell in variant['cell_support']:
             key = (variant['guide'], cell['cell_barcode'])
             maximum[key] = max(maximum[key], cell['alt'])
+    duplicate_gene_labels = defaultdict(int)
+    for guide in cohort.get('display', []):
+        identities = defaultdict(set)
+        for molecule in guide['molecules']:
+            identities[(molecule['cell_barcode'], molecule['UMI'])].add(molecule['GX'])
+        for (barcode, umi), genes in identities.items():
+            duplicate_gene_labels[(guide['guide'], barcode)] += max(0, len(genes) - 1)
     by_guide = defaultdict(int)
     for cell in cohort['cells']:
         value = maximum[(cell['guide'], cell['cell_barcode'])]
         if value > cell['indel_families']:
             raise ValueError('Same-allele molecule count exceeds all indel families')
         cell['max_same_indel_families'] = value
-        by_guide[cell['guide']] += int(value >= 2)
+        # Conservative bound if the same CB/UB carries different gene tags.
+        lower_bound = max(0, value - duplicate_gene_labels[(cell['guide'], cell['cell_barcode'])])
+        cell['same_indel_distinct_UMI_lower_bound'] = lower_bound
+        by_guide[cell['guide']] += int(lower_bound >= 2)
     for guide in cohort['guides']:
         guide['same_indel_ge2_records'] = by_guide[guide['guide']]
     return cohort

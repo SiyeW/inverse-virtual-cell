@@ -70,3 +70,12 @@ def test_two_different_single_molecule_indels_do_not_become_double_support():
     add_same_indel_support(cohort)
     assert cohort['cells'][0]['max_same_indel_families']==1
     assert cohort['guides'][0]['same_indel_ge2_records']==0
+
+
+def test_one_umi_with_two_gene_tags_is_not_two_independent_molecules():
+    cohort=dict(guides=[dict(guide='g')],cells=[dict(guide='g',cell_barcode='c',indel_families=2)],
+                variants=[dict(guide='g',kind='INS',cell_support=[dict(cell_barcode='c',alt=2)])],
+                display=[dict(guide='g',molecules=[dict(cell_barcode='c',UMI='u',GX='gene1'),dict(cell_barcode='c',UMI='u',GX='gene2')])])
+    add_same_indel_support(cohort)
+    assert cohort['cells'][0]['same_indel_distinct_UMI_lower_bound']==1
+    assert cohort['guides'][0]['same_indel_ge2_records']==0

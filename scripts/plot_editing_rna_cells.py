@@ -74,7 +74,7 @@ def primary_summary(data, root):
                 title='A  Local coverage within the 197 sgRNAs')
     ax[0,0].set_ylim(0,max(y)*1.2)
     labels=['All assigned QC records','Any local RNA evidence','Reference RNA across cut ±3 bp',
-            'Indel RNA support','Same indel: ≥2 RNA molecules']
+            'Indel RNA support','Same indel: ≥2 distinct UMIs (lower bound)']
     yy=np.arange(5)[::-1]
     ax[0,1].scatter(counts,yy,s=48,c=[GRAY,BLUE,GREEN,ORANGE,RED],zorder=3)
     for x,z in zip(counts,yy):ax[0,1].annotate(f'{x:,}',(x,z),xytext=(7,0),textcoords='offset points',va='center')
@@ -145,7 +145,8 @@ def pca_case(dataset, row, arrays, cells, root):
         mask=categories==category
         if mask.any():axes[1].scatter(xy[mask,0],xy[mask,1],s=10 if category=='No site information' else 24,c=color,
                                      alpha=.55 if category=='No site information' else .9,label=f'{category} ({mask.sum()})',rasterized=True)
-    strong=indel>=2
+    lookup={(r['guide'],r['cell_barcode']):r for r in cells}
+    strong=np.array([lookup.get((str(g),str(b)),{}).get('same_indel_distinct_UMI_lower_bound',0)>=2 for g,b in zip(arrays['guide'],arrays['cell_barcode'])])
     if strong.any():axes[1].scatter(xy[strong,0],xy[strong,1],s=50,facecolors='none',edgecolors='black',linewidths=.9,label='Indel: ≥2 RNA molecules')
     axes[1].legend(frameon=False,fontsize=7,loc='best')
     sc=axes[2].scatter(xy[:,0],xy[:,1],s=11,c=np.log10(arrays['total_RNA']),cmap='viridis',alpha=.8,rasterized=True)

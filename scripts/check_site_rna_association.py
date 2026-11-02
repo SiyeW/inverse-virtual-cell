@@ -79,7 +79,8 @@ def run(cfg):
             cells = meta.iloc[ids]
             joined = evidence.reindex(pd.MultiIndex.from_arrays([cells.guide_id.astype(str), cells.index.astype(str)], names=['guide', 'cell_barcode'])).fillna(0)
             for kind, minimum in [('any_indel_RNA', 1), ('two_or_more_indel_RNA_molecules', 2)]:
-                positive = joined.max_same_indel_families.to_numpy() >= minimum
+                positive = (joined.max_same_indel_families.to_numpy() >= 1 if minimum == 1
+                            else joined.same_indel_distinct_UMI_lower_bound.to_numpy() >= minimum)
                 negative = ((joined.indel_families.to_numpy() == 0) & (joined.SNV_families.to_numpy() == 0)
                             & (joined.cut_ref_families.to_numpy() > 0) & (joined.ambiguous_families.to_numpy() == 0))
                 use = positive | negative
