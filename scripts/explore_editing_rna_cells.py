@@ -45,6 +45,27 @@ def reverse_complement(value):
     return value.translate(str.maketrans('ACGT', 'TGCA'))[::-1]
 
 
+def add_same_indel_support(cohort):
+    """Distinguish >=2 molecules carrying the same indel from different indels."""
+    maximum = defaultdict(int)
+    for variant in cohort['variants']:
+        if variant['kind'] not in ['INS', 'DEL']:
+            continue
+        for cell in variant['cell_support']:
+            key = (variant['guide'], cell['cell_barcode'])
+            maximum[key] = max(maximum[key], cell['alt'])
+    by_guide = defaultdict(int)
+    for cell in cohort['cells']:
+        value = maximum[(cell['guide'], cell['cell_barcode'])]
+        if value > cell['indel_families']:
+            raise ValueError('Same-allele molecule count exceeds all indel families')
+        cell['max_same_indel_families'] = value
+        by_guide[cell['guide']] += int(value >= 2)
+    for guide in cohort['guides']:
+        guide['same_indel_ge2_records'] = by_guide[guide['guide']]
+    return cohort
+
+
 def cut_position(spacer, reference, start, fetch):
     """Canonical SpCas9 NGG PAM, checked against the actual reference sequence."""
     if reference == spacer:

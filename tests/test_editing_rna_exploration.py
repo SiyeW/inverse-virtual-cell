@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from explore_editing_rna_cells import cut_position, family_state, covariance_pca, reverse_complement
+from explore_editing_rna_cells import cut_position, family_state, covariance_pca, reverse_complement, add_same_indel_support
 from analyze_guided_rna_alleles import Read, raw_events, covers_reference
 
 
@@ -61,3 +61,12 @@ def test_all_record_covariance_pca_matches_direct_svd_geometry():
     scores = np.concatenate([bp, qp])
     assert np.allclose(scores @ scores.T, x @ x.T)
     assert np.allclose(fraction.sum(), 1)
+
+
+def test_two_different_single_molecule_indels_do_not_become_double_support():
+    cohort=dict(guides=[dict(guide='g')],cells=[dict(guide='g',cell_barcode='c',indel_families=2)],
+                variants=[dict(guide='g',kind='INS',cell_support=[dict(cell_barcode='c',alt=1)]),
+                          dict(guide='g',kind='DEL',cell_support=[dict(cell_barcode='c',alt=1)])])
+    add_same_indel_support(cohort)
+    assert cohort['cells'][0]['max_same_indel_families']==1
+    assert cohort['guides'][0]['same_indel_ge2_records']==0

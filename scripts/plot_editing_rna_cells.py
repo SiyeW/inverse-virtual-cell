@@ -12,6 +12,7 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
 import numpy as np
 import pandas as pd
+from explore_editing_rna_cells import add_same_indel_support
 
 BLUE = '#377b9d'
 RED = '#c53932'
@@ -61,7 +62,7 @@ def primary_summary(data, root):
     records = sum(r['assigned_QC_records'] for r in guides)
     observed = sum(r['observed_records'] for r in guides)
     counts = [records, observed, sum(r['cut_ref_records'] for r in guides),
-              sum(r['indel_records'] for r in guides), sum(r['indel_ge2_records'] for r in guides)]
+              sum(r['indel_records'] for r in guides), sum(r['same_indel_ge2_records'] for r in guides)]
     fig, ax = plt.subplots(2, 2, figsize=(11.2, 8.2))
     values = np.asarray([r['observed_records'] for r in guides])
     bins = [(1,1),(2,4),(5,9),(10,19),(20,10**9)]
@@ -73,7 +74,7 @@ def primary_summary(data, root):
                 title='A  Local coverage within the 197 sgRNAs')
     ax[0,0].set_ylim(0,max(y)*1.2)
     labels=['All assigned QC records','Any local RNA evidence','Reference RNA across cut ±3 bp',
-            'Indel RNA support','Indel support: ≥2 RNA molecules']
+            'Indel RNA support','Same indel: ≥2 RNA molecules']
     yy=np.arange(5)[::-1]
     ax[0,1].scatter(counts,yy,s=48,c=[GRAY,BLUE,GREEN,ORANGE,RED],zorder=3)
     for x,z in zip(counts,yy):ax[0,1].annotate(f'{x:,}',(x,z),xytext=(7,0),textcoords='offset points',va='center')
@@ -115,7 +116,7 @@ def primary_summary(data, root):
 def evidence_arrays(cells, guide, barcode):
     evidence={(r['guide'],r['cell_barcode']):r for r in cells}
     rows=[evidence.get((str(g),str(b)),{}) for g,b in zip(guide,barcode)]
-    indel=np.array([r.get('indel_families',0) for r in rows]);ref=np.array([r.get('cut_ref_families',0) for r in rows])
+    indel=np.array([r.get('max_same_indel_families',0) for r in rows]);ref=np.array([r.get('cut_ref_families',0) for r in rows])
     snv=np.array([r.get('SNV_families',0) for r in rows]);amb=np.array([r.get('ambiguous_families',0) for r in rows])
     category=np.full(len(rows),'No site information',dtype=object)
     category[(ref>0)&(amb==0)]='Reference-window RNA'
@@ -286,7 +287,7 @@ def main():
     p=argparse.ArgumentParser();p.add_argument('--config',type=Path,required=True);args=p.parse_args();cfg=json.loads(args.config.read_text())
     style();out=Path(cfg['figure_output']);out.mkdir(parents=True,exist_ok=True)
     # Export contains the two sequentially completed sequence cohorts and no source BAM.
-    data={d:json.loads((Path(cfg['sequence_output'])/'sequence'/(d+'.json')).read_text()) for d in ['company','chip01']}
+    data={d:add_same_indel_support(json.loads((Path(cfg['sequence_output'])/'sequence'/(d+'.json')).read_text())) for d in ['company','chip01']}
     corrections=join_qc_counts(data,pd.read_csv(cfg['joint_table']))
     stats=primary_summary(data,out)
     pd.DataFrame(data['company']['guides']).to_csv(out/'guide_evidence_all_peers.csv',index=False)

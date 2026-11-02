@@ -13,6 +13,7 @@ import time
 import numpy as np
 import pandas as pd
 from scipy.spatial.distance import cdist
+from explore_editing_rna_cells import add_same_indel_support
 
 
 def energy_from_indicators(distance, labels):
@@ -68,7 +69,8 @@ def run(cfg):
         a = ad.read_h5ad(dataset['RNA_checkpoint'])
         meta = a.obs.copy()
         meta['target_gene_id'] = meta.guide_id.astype(str).map(catalogue.target_gene_id)
-        sequence = pd.DataFrame(json.loads((sequence_root / 'sequence' / (dataset['id'] + '.json')).read_text())['cells'])
+        cohort = add_same_indel_support(json.loads((sequence_root / 'sequence' / (dataset['id'] + '.json')).read_text()))
+        sequence = pd.DataFrame(cohort['cells'])
         assert not sequence.duplicated(['guide', 'cell_barcode']).any()
         evidence = sequence.set_index(['guide', 'cell_barcode'])
         results = []
@@ -77,7 +79,7 @@ def run(cfg):
             cells = meta.iloc[ids]
             joined = evidence.reindex(pd.MultiIndex.from_arrays([cells.guide_id.astype(str), cells.index.astype(str)], names=['guide', 'cell_barcode'])).fillna(0)
             for kind, minimum in [('any_indel_RNA', 1), ('two_or_more_indel_RNA_molecules', 2)]:
-                positive = joined.indel_families.to_numpy() >= minimum
+                positive = joined.max_same_indel_families.to_numpy() >= minimum
                 negative = ((joined.indel_families.to_numpy() == 0) & (joined.SNV_families.to_numpy() == 0)
                             & (joined.cut_ref_families.to_numpy() > 0) & (joined.ambiguous_families.to_numpy() == 0))
                 use = positive | negative
