@@ -152,9 +152,14 @@ def pca_case(dataset, row, arrays, cells, root):
     sc=axes[2].scatter(xy[:,0],xy[:,1],s=11,c=np.log10(arrays['total_RNA']),cmap='viridis',alpha=.8,rasterized=True)
     cb=fig.colorbar(sc,ax=axes[2],fraction=.045,pad=.025);cb.set_label('log10(total RNA UMI)',fontsize=8)
     for ax,title in zip(axes,['sgRNA identity','Observed site-RNA evidence','RNA measurement amount']):ax.set_title(title,fontsize=10)
+    fit_status=str(arrays['PCA_fit_status']) if 'PCA_fit_status' in arrays else 'target_plus_NTC_fit'
+    if fit_status in ['insufficient_target_records','constant_target_RNA']:
+        for ax in axes:
+            ax.clear();ax.set_axis_off();ax.text(.5,.5,'Target-only PCA not estimable\n'+fit_status.replace('_',' '),ha='center',va='center',transform=ax.transAxes)
     cohort='Company merged records' if dataset=='company' else 'Chip 1 (single capture)'
     fig.suptitle(f"{cohort} — {row['target']}\n{len(xy):,} target records; {len(guide_names)} sgRNAs; same coordinates in all three panels",fontsize=12,y=1.04)
-    fig.text(.02,-.025,'All available QC records retained. Site-RNA labels are observations, not DNA genotypes or functional KO calls.',fontsize=8)
+    footer=('PCA fitted on target records; all NTC projected. ' if fit_status=='target_fit_NTC_projection' else 'All available QC records retained. ')
+    fig.text(.02,-.025,footer+'Site-RNA labels are observations, not DNA genotypes or functional KO calls.',fontsize=8)
     fig.tight_layout(w_pad=1)
     save(fig,root/dataset,str(row['target_gene_id']))
     return dict(dataset=dataset,target_gene_id=row['target_gene_id'],target=row['target'],RNA_records=len(xy),

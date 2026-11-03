@@ -317,6 +317,37 @@ def covariance_pca(reference, query, components=10):
     return (reference - mean) @ vectors, (query - mean) @ vectors, values / np.trace(covariance)
 
 
+def target_only_pca(reference, query, components=10):
+    """Fit only the target's records; project all NTC records without fitting them."""
+    from scipy.linalg import eigh
+    n,p=query.shape
+    if n<2:
+        return np.zeros((len(reference),2)),np.zeros((n,2)),np.zeros(2),'insufficient_target_records'
+    mean=query.mean(axis=0);centered=query-mean
+    # The smaller Gram matrix avoids repeated 2000-feature eigendecompositions.
+    if n<=p:
+        covariance=centered@centered.T/(n-1)
+        size=n;k=min(components,n-1)
+        values,u=eigh(covariance,subset_by_index=[size-k,size-1],check_finite=False)
+        order=np.argsort(values)[::-1];values,u=values[order],u[:,order]
+        valid=values>max(1e-12,float(values[0])*1e-10)
+        if not valid.any():return np.zeros((len(reference),2)),np.zeros((n,2)),np.zeros(2),'constant_target_RNA'
+        values,u=values[valid],u[:,valid]
+        vectors=(centered.T@u)/np.sqrt(values*(n-1))[None,:]
+    else:
+        covariance=centered.T@centered/(n-1);k=min(components,p)
+        values,vectors=eigh(covariance,subset_by_index=[p-k,p-1],check_finite=False)
+        order=np.argsort(values)[::-1];values,vectors=values[order],vectors[:,order]
+    for j in range(vectors.shape[1]):
+        anchor=np.argmax(np.abs(vectors[:,j]));vectors[:,j]*=1 if vectors[anchor,j]>=0 else -1
+    bp=(reference-mean)@vectors;qp=centered@vectors
+    fraction=values/np.trace(covariance)
+    if qp.shape[1]<2:
+        bp=np.pad(bp,((0,0),(0,2-bp.shape[1])));qp=np.pad(qp,((0,0),(0,2-qp.shape[1])))
+        fraction=np.pad(fraction,(0,2-len(fraction)))
+    return bp,qp,fraction,'target_fit_NTC_projection'
+
+
 def rna(cfg, progress):
     import anndata as ad
     from scipy.linalg import eigh
@@ -343,8 +374,9 @@ def rna(cfg, progress):
         x = a.X.toarray().astype(np.float64)
         background = x[ntc]
         base_sum = background.sum(axis=0)
+        target_fit=cfg.get('PCA_fit_records')=='target_only'
         with threadpool_limits(limits=2):
-            cross = background.T @ background
+            cross = None if target_fit else background.T @ background
         summaries = []
         dest = out / dataset['id']
         dest.mkdir(exist_ok=True)
@@ -355,26 +387,31 @@ def rna(cfg, progress):
             row = dict(target_gene_id=target, target=catalogue.loc[catalogue.target_gene_id.eq(target), 'target_gene_name'].iloc[0],
                        dataset=dataset['id'], records=int(mask.sum()), guides=int(meta.loc[mask, 'guide_id'].nunique()),
                        NTC_records=int(ntc.sum()), original_RNA_QC_records=len(source), available_RNA_records=len(meta),
-                       target_RNA_removed_from_PCA=bool(target in a.var_names))
+                       target_RNA_removed_from_PCA=bool(target in a.var_names),
+                       PCA_fit_population='target_only' if target_fit else 'target_plus_all_NTC')
             if not path.exists() and len(query):
                 use = np.asarray(a.var_names != target)
                 n = len(background) + len(query)
                 summed = base_sum + query.sum(axis=0)
                 with threadpool_limits(limits=2):
-                    covariance = cross + query.T @ query - np.outer(summed, summed) / n
-                    covariance = covariance[np.ix_(use, use)] / (n - 1)
-                    p = covariance.shape[0]
-                    values, vectors = eigh(covariance, subset_by_index=[p - 10, p - 1], check_finite=False)
-                    order = np.argsort(values)[::-1]
-                    values, vectors = values[order], vectors[:, order]
-                    for j in range(vectors.shape[1]):
-                        anchor = np.argmax(np.abs(vectors[:, j])); vectors[:, j] *= 1 if vectors[anchor, j] >= 0 else -1
-                    mean = summed[use] / n
-                    bp = (background[:, use] - mean) @ vectors
-                    qp = (query[:, use] - mean) @ vectors
+                    if target_fit:
+                        bp,qp,fraction,fit_status=target_only_pca(background[:,use],query[:,use])
+                    else:
+                        covariance = cross + query.T @ query - np.outer(summed, summed) / n
+                        covariance = covariance[np.ix_(use, use)] / (n - 1)
+                        p = covariance.shape[0]
+                        values, vectors = eigh(covariance, subset_by_index=[p - 10, p - 1], check_finite=False)
+                        order = np.argsort(values)[::-1]
+                        values, vectors = values[order], vectors[:, order]
+                        for j in range(vectors.shape[1]):
+                            anchor = np.argmax(np.abs(vectors[:, j])); vectors[:, j] *= 1 if vectors[anchor, j] >= 0 else -1
+                        mean = summed[use] / n
+                        bp = (background[:, use] - mean) @ vectors
+                        qp = (query[:, use] - mean) @ vectors
+                        fraction=values/np.trace(covariance);fit_status='target_plus_NTC_fit'
                 with path.with_suffix('.npz.writing').open('wb') as f:
                     np.savez_compressed(f, NTC_PCA=bp.astype(np.float32), target_PCA=qp.astype(np.float32),
-                                        variance_ratio=values / np.trace(covariance),
+                                        variance_ratio=fraction,PCA_fit_status=np.asarray(fit_status),
                                         cell_barcode=meta.index.to_numpy(dtype=str)[mask],
                                         guide=meta.loc[mask, 'guide_id'].to_numpy(dtype=str),
                                         total_RNA=meta.loc[mask, 'total_counts'].to_numpy(dtype=np.float64))

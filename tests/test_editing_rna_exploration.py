@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from explore_editing_rna_cells import cut_position, family_state, covariance_pca, reverse_complement, add_same_indel_support
+from explore_editing_rna_cells import cut_position, family_state, covariance_pca, target_only_pca, reverse_complement, add_same_indel_support
 from analyze_guided_rna_alleles import Read, raw_events, covers_reference
 
 
@@ -79,3 +79,17 @@ def test_one_umi_with_two_gene_tags_is_not_two_independent_molecules():
     add_same_indel_support(cohort)
     assert cohort['cells'][0]['same_indel_distinct_UMI_lower_bound']==1
     assert cohort['guides'][0]['same_indel_ge2_records']==0
+
+
+def test_target_only_pca_geometry_does_not_depend_on_NTC_population():
+    rng=np.random.default_rng(17);target=rng.normal(size=(7,10));ntc=rng.normal(size=(29,10))
+    bp,qp,fraction,status=target_only_pca(ntc,target,components=6)
+    _,qp2,_,_=target_only_pca(ntc*100,target,components=6)
+    centered=target-target.mean(axis=0)
+    assert status=='target_fit_NTC_projection' and np.allclose(qp,qp2)
+    assert np.allclose(qp@qp.T,centered@centered.T) and np.allclose(fraction.sum(),1)
+
+
+def test_single_target_record_is_not_a_fake_PCA_cluster():
+    bp,qp,ratios,status=target_only_pca(np.ones((20,4)),np.ones((1,4)))
+    assert status=='insufficient_target_records' and qp.shape==(1,2)
