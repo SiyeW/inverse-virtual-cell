@@ -182,6 +182,8 @@ def plot(result: dict, output: Path) -> None:
             ax.barh(y, value, left=left, height=0.44, color=color, edgecolor="white", linewidth=0.7)
             if value >= 3:
                 ax.text(left + value / 2, y, str(value), ha="center", va="center", color="black" if category == "Outside ORF" else "white")
+            elif value:
+                ax.text(left + value / 2, y + 0.26, str(value), ha="center", va="bottom", fontsize=9)
             left += value
         ax.text(left + 1.2, y, f"n = {left}", ha="left", va="center")
     ax.set_yticks([1, 0], ["Insertions", "Deletions"])
@@ -193,8 +195,11 @@ def plot(result: dict, output: Path) -> None:
     handles = [Patch(facecolor=c, label=f"{name} (n = {result['counts'].get(name, 0)})") for name, c in zip(CATEGORIES, COLORS)]
     fig.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.52, 0.86), ncol=2, frameon=False)
     fig.suptitle("Predicted coding effects of RNA-observed indels", y=0.98, fontsize=14)
-    fig.text(0.13, 0.07, "Each distinct indel is counted once per sgRNA. All 197 sgRNAs are retained in the input cohort.", fontsize=9)
-    fig.text(0.13, 0.025, "Unresolved: no verified reference, a boundary change, or reference disagreement. This is not KO efficiency.", fontsize=9)
+    observed_guides = len({r["guide"] for r in result["events"]})
+    fig.text(0.13, 0.07, f"{result['indel_observations']} indel observations from {observed_guides} of {result['guide_count']} sgRNAs; each distinct indel is counted once per sgRNA.", fontsize=9)
+    no_ref = result["reasons"].get("target_ORF_reference_not_recovered", 0)
+    other = result["counts"].get("Unresolved", 0) - no_ref
+    fig.text(0.13, 0.025, f"Unresolved: no matching ORF reference ({no_ref}), or a boundary / reference disagreement ({other}).", fontsize=9)
     fig.subplots_adjust(left=0.13, right=0.91, top=0.66, bottom=0.23)
     fig.savefig(output.with_suffix(".png"), dpi=180)
     fig.savefig(output.with_suffix(".svg"))
