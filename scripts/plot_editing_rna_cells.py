@@ -9,7 +9,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
-from matplotlib.patches import Rectangle
+from matplotlib.patches import Rectangle, Patch
 import numpy as np
 import pandas as pd
 from explore_editing_rna_cells import add_same_indel_support
@@ -147,7 +147,7 @@ def pca_case(dataset, row, arrays, cells, root):
                                      alpha=.55 if category=='No site information' else .9,label=f'{category} ({mask.sum()})',rasterized=True)
     lookup={(r['guide'],r['cell_barcode']):r for r in cells}
     strong=np.array([lookup.get((str(g),str(b)),{}).get('same_indel_distinct_UMI_lower_bound',0)>=2 for g,b in zip(arrays['guide'],arrays['cell_barcode'])])
-    if strong.any():axes[1].scatter(xy[strong,0],xy[strong,1],s=50,facecolors='none',edgecolors='black',linewidths=.9,label='Indel: ≥2 RNA molecules')
+    if strong.any():axes[1].scatter(xy[strong,0],xy[strong,1],s=50,facecolors='none',edgecolors='black',linewidths=.9,label='Same indel: ≥2 distinct UMIs')
     axes[1].legend(frameon=False,fontsize=7,loc='best')
     sc=axes[2].scatter(xy[:,0],xy[:,1],s=11,c=np.log10(arrays['total_RNA']),cmap='viridis',alpha=.8,rasterized=True)
     cb=fig.colorbar(sc,ax=axes[2],fraction=.045,pad=.025);cb.set_label('log10(total RNA UMI)',fontsize=8)
@@ -270,16 +270,28 @@ def association_overview(case_rows, association, root):
     for dataset,color,marker,label in [('company',ORANGE,'o','Company records'),('chip01',BLUE,'^','Chip 1')]:
         c=cases[cases.dataset.eq(dataset)]
         ax[0].scatter(c.reference_window_only_records,c.indel_RNA_records,c=color,marker=marker,s=24,alpha=.65,label=label)
-        a=association[association.dataset.eq(dataset)&association.comparison.eq('any_indel_RNA')]
-        a=a.dropna(subset=['q_raw','q_RNA_amount_residual'])
-        if len(a):ax[1].scatter(-np.log10(a.q_raw),-np.log10(a.q_RNA_amount_residual),c=color,marker=marker,s=30,alpha=.8,label=f'{label} ({len(a)} tests)')
     ax[0].set(xlabel='Records with reference-window RNA only',ylabel='Records supporting an RNA indel',title='A  Site-RNA evidence across all 104 targets')
     ax[0].legend(frameon=False,fontsize=8)
-    threshold=-np.log10(.05)
-    ax[1].axvline(threshold,color='#777777',ls='--',lw=.8);ax[1].axhline(threshold,color='#777777',ls='--',lw=.8)
-    ax[1].set(xlabel='RNA-state association: −log10(q)',ylabel='After RNA-amount adjustment: −log10(q)',title='B  Exploratory association, within-sgRNA permutations')
-    ax[1].legend(frameon=False,fontsize=8)
-    fig.text(.02,-.02,'PCA displays use all available records. Tests compare observed RNA-evidence groups, not KO versus wild type. Dashed lines: q = 0.05.',fontsize=8)
+    outcome_colors=[GRAY,'#bad0dc',BLUE,RED]
+    outcome_labels=['Not enough site-RNA records','No within-sgRNA comparison','Compared: q ≥ 0.05','Compared: q < 0.05']
+    for i,dataset in enumerate(['company','chip01']):
+        a=association[association.dataset.eq(dataset)&association.comparison.eq('any_indel_RNA')]
+        assert len(a)==104
+        counts=[int(a.status.eq('insufficient_observed_records').sum()),int(a.status.eq('no_within_guide_label_exchange').sum()),
+                int((a.status.eq('tested_record_association')&a.q_raw.ge(.05)).sum()),
+                int((a.status.eq('tested_record_association')&a.q_raw.lt(.05)).sum())]
+        assert sum(counts)==104
+        bottom=0
+        for j,n in enumerate(counts):
+            ax[1].bar(i,n,bottom=bottom,color=outcome_colors[j],width=.55)
+            if n>=3:ax[1].text(i,bottom+n/2,str(n),ha='center',va='center',color='white' if j>=2 else '#242424')
+            elif n:ax[1].text(i+.33,bottom+n/2,str(n),ha='left',va='center',fontsize=9)
+            bottom+=n
+        ax[1].text(i,108,f'{counts[3]} with q < 0.05',ha='center',fontsize=9,color=RED)
+    ax[1].set(xticks=[0,1],xticklabels=['Company records','Chip 1'],ylabel='Number of targets',ylim=(0,116),
+              title='B  RNA-state comparison across all 104 targets')
+    ax[1].legend(handles=[Patch(facecolor=c,label=l) for c,l in zip(outcome_colors,outcome_labels)],frameon=False,fontsize=7.5,loc='upper center',bbox_to_anchor=(.5,-.12),ncol=2)
+    fig.text(.02,-.13,'All targets are retained in the PCA figures. Missing site-RNA evidence is not a negative result. Associations concern RNA observations, not functional KO.',fontsize=8)
     fig.tight_layout(w_pad=2)
     save(fig,root,'13_target_RNA_state_association',True)
 
