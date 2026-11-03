@@ -285,12 +285,14 @@ def association_overview(case_rows, association, root):
 
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--config',type=Path,required=True);args=p.parse_args();cfg=json.loads(args.config.read_text())
+    p=argparse.ArgumentParser();p.add_argument('--config',type=Path,required=True)
+    p.add_argument('--only-rna',action='store_true',help='Reuse accepted sequence figures; render only the outstanding RNA figures')
+    args=p.parse_args();cfg=json.loads(args.config.read_text())
     style();out=Path(cfg['figure_output']);out.mkdir(parents=True,exist_ok=True)
     # Export contains the two sequentially completed sequence cohorts and no source BAM.
     data={d:add_same_indel_support(json.loads((Path(cfg['sequence_output'])/'sequence'/(d+'.json')).read_text())) for d in ['company','chip01']}
     corrections=join_qc_counts(data,pd.read_csv(cfg['joint_table']))
-    stats=primary_summary(data,out)
+    stats=None if args.only_rna else primary_summary(data,out)
     pd.DataFrame(data['company']['guides']).to_csv(out/'guide_evidence_all_peers.csv',index=False)
     allcases=[]
     for dataset in ['company','chip01']:
@@ -305,7 +307,7 @@ def main():
     association_overview(allcases,association,out)
     primary=sorted([r for r in data['company']['guides'] if r['primary_197']],key=lambda r:r['guide'])
     display={r['guide']:r for r in data['company']['display']};site_index=[]
-    for i,row in enumerate(primary):
+    for i,row in enumerate([] if args.only_rna else primary):
         slug=f'G{i+1:03d}';variant_diagram(row,display[row['guide']],data['company']['variants'],out/'site_figures',slug)
         original_read_alignment(row,display[row['guide']],out/'site_figures',slug)
         site_index.append(dict(guide=row['guide'],target_gene_id=row['target_gene_id'],file='site_figures/'+slug+'.png'))
