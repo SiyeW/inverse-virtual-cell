@@ -24,8 +24,9 @@ BLUE="#427F9C"
 
 def save(fig,path,svg=False):
     path.parent.mkdir(parents=True,exist_ok=True)
-    fig.savefig(path.with_suffix('.png'),dpi=190,bbox_inches='tight',facecolor='white')
-    if svg:fig.savefig(path.with_suffix('.svg'),bbox_inches='tight',facecolor='white')
+    # PB transcript IDs contain dots; they are identities, not file suffixes.
+    fig.savefig(path.parent/(path.name+'.png'),dpi=190,bbox_inches='tight',facecolor='white')
+    if svg:fig.savefig(path.parent/(path.name+'.svg'),bbox_inches='tight',facecolor='white')
     plt.close(fig)
 
 
