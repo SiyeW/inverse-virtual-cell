@@ -180,11 +180,13 @@ def main():
         rows=cases[cases.dataset.eq(dataset)]
         if len(rows)!=104:raise ValueError('All 104 target plots are required')
         lookup={(r['guide'],r['cell_barcode']):r for r in labels[dataset]['records']}
-        for _,row in rows.iterrows():
+        for index,(_,row) in enumerate(rows.iterrows(),start=1):
             pca=Path(cfg['PCA_root'])/'RNA'/dataset/(row.target_gene_id+'.npz');raw=pca.read_bytes()
             if hashlib.sha256(raw).hexdigest()!=receipt[dataset+'/'+row.target_gene_id]:raise ValueError('Existing PCA coordinates changed')
             with np.load(io.BytesIO(raw),allow_pickle=False) as arrays:
                 proof.append(plot_case(dataset,row,arrays,lookup,out/'case_figures'/dataset/str(row.target_gene_id)))
+            if index%10==0 or index==len(rows):
+                (root/'status.json').write_text(json.dumps(dict(stage='figures',dataset=dataset,completed=index,total=len(rows))),encoding='utf-8')
         tests.append(pd.read_csv(root/(dataset+'_association.csv')))
         pairs[dataset]=pd.read_csv(root/(dataset+'_guide_pairs.csv'))
         print(json.dumps(dict(stage='figures',dataset=dataset,completed=len(rows))),flush=True)
