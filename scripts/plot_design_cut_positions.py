@@ -147,6 +147,48 @@ def check_gtf(path: Path, models: dict[str, Model]) -> dict:
             "genePred_coding_includes_separate_GTF_stop_codon": True}
 
 
+def supplementary_model(row: dict, parents: dict) -> tuple[str, Model]:
+    """Use the exact original positive-control transcript, never a best-fit isoform."""
+    original_id = row["original_transcript_id"]
+    identifier, version = original_id.rsplit(".", 1)
+    parent = parents[identifier]
+    if int(version) != parent["version"]:
+        raise ValueError("Original transcript version differs from parent lookup")
+    raw = row["raw"]
+    if row["format"] == "Ensembl_expanded_transcript":
+        if (raw["id"] != identifier or raw["version"] != int(version)
+            or raw["Parent"] != parent["Parent"] or raw["assembly_name"] != "GRCh38"):
+            raise ValueError("Supplementary transcript identity/version/assembly mismatch")
+        strand = "+" if raw["strand"] == 1 else "-" if raw["strand"] == -1 else None
+        chrom = "chr" + raw["seq_region_name"]
+        exons = tuple(sorted((int(e["start"])-1, int(e["end"])) for e in raw["Exon"]))
+        translation = raw["Translation"]
+        left, right = int(translation["start"])-1, int(translation["end"])
+        coding = tuple((max(s,left),min(e,right)) for s,e in exons if max(s,left)<min(e,right))
+        # Different public providers include/exclude the terminal stop codon;
+        # the CDS START and all evaluated early cut offsets are unaffected.
+        if sum(e-s for s,e in coding) not in (translation["length"]*3,translation["length"]*3+3):
+            raise ValueError("Translation length disagrees with exonic coding span")
+    elif row["format"] == "UCSC_bigGenePred":
+        if row["assembly"] != "hg38" or raw["name"] != original_id:
+            raise ValueError("Supplementary transcript identity/version/assembly mismatch")
+        chrom, strand = raw["chrom"], raw["strand"]
+        sizes = [int(s) for s in raw["blockSizes"].strip(",").split(",")]
+        offsets = [int(s) for s in raw["chromStarts"].strip(",").split(",")]
+        if len(sizes) != len(offsets) or len(sizes) != raw["blockCount"]:
+            raise ValueError("Supplementary exon count mismatch")
+        exons = tuple((raw["chromStart"]+s,raw["chromStart"]+s+n) for s,n in zip(offsets,sizes))
+        left,right = raw["thickStart"],raw["thickEnd"]
+        coding = tuple((max(s,left),min(e,right)) for s,e in exons if max(s,left)<min(e,right))
+    else:
+        raise ValueError("Unsupported supplementary source format")
+    if chrom != "chr"+parent["seq_region_name"] or strand != ("+" if parent["strand"]==1 else "-"):
+        raise ValueError("Original positive-control chromosome/strand mismatch")
+    if merge_blocks(exons) != exons or not coding:
+        raise ValueError("Invalid supplementary coding/exon intervals")
+    return parent["Parent"],Model(original_id,chrom,strand,exons,coding)
+
+
 def join_feature(feature: dict, original_by_spacer: dict, models_by_id: dict,
                  enst_parents: dict) -> dict:
     spacer = reverse_complement(feature["sequence"].upper())
@@ -240,6 +282,7 @@ def main():
     parser.add_argument("--gene-table", type=Path, required=True)
     parser.add_argument("--gtf", type=Path, required=True)
     parser.add_argument("--enst-parents", type=Path, required=True)
+    parser.add_argument("--supplementary-models", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--code-commit", required=True)
     args = parser.parse_args()
@@ -255,6 +298,14 @@ def main():
         for site in sites:
             by_spacer[site["spacer"]].append(dict(site, original_gene=gene))
     parents = json.loads(args.enst_parents.read_text(encoding="utf-8"))["current_transcripts"]
+    supplements = []
+    if args.supplementary_models:
+        supplements = json.loads(args.supplementary_models.read_text(encoding="utf-8"))["models"]
+        for row in supplements:
+            parent,model = supplementary_model(row,parents)
+            if by_id.get(parent):
+                raise ValueError("Supplementary model would replace an existing project source model")
+            by_id[parent].append(model)
     with args.features.open(encoding="utf-8-sig", newline="") as handle:
         features = list(csv.DictReader(handle))
     targeting = [row for row in features if row["target_gene_id"] != "Non-Targeting"]
@@ -268,14 +319,17 @@ def main():
     result = {
         "created_at": datetime.now(timezone.utc).isoformat(), "code_commit": args.code_commit,
         "source_files": {name:{"path":str(getattr(args,name)),"sha256":sha256(getattr(args,name))}
-                         for name in ("features","original_sites","gene_table","gtf","enst_parents")},
+                         for name in ("features","original_sites","gene_table","gtf","enst_parents","supplementary_models")
+                         if getattr(args,name) is not None},
         "method_sources": ["https://genome.ucsc.edu/FAQ/FAQformat.html#format9",
                            "https://genome.ucsc.edu/FAQ/FAQformat.html#format4"],
         "coordinate_contract": "genePred/cut0 0-based boundaries; GTF 1-based inclusive converted once; "
-                               "sum coding exonic bases preceding cut along ORF strand, including source stop codon",
+                               "sum coding exonic bases preceding cut along ORF strand; "
+                               "project genePred includes stop codon, public positive-control models follow their source conventions",
         "scope": "All unique targeting designs in the accepted feature inventory; no RNA/count/response filtering. "
                  "An intended cut-site audit, not an assay of actual indels or functional KO.",
         "gtf_gene_table_check": gtf_check,
+        "positive_control_supplementary_models": len(supplements),
         "original_rows": sum(map(len,source["sites_by_original_Gene"].values())),
         "original_unique_targeting_sequences": len(by_spacer),
         "duplicate_source_sequences": sum(len(v)>1 for v in by_spacer.values()),

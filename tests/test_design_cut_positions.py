@@ -67,3 +67,28 @@ def test_source_transcript_parent_is_an_identity_join_only():
     rows={"ACGT":[{"original_gene":"ENST1.2","chrom":"chr1","cut0":103,"relative":3,"original_row":1}]}
     models={"ENSG1":[module.Model("ENSG1","chr1","+",((100,112),),((100,112),))]}
     assert module.join_feature(feature,rows,models,{"ENST1":{"Parent":"ENSG1"}})["distance"]==3
+
+
+def test_exact_positive_transcript_and_coding_start_conversion():
+    raw={"id":"ENST1","version":2,"Parent":"ENSG1","assembly_name":"GRCh38",
+         "strand":1,"seq_region_name":"1","Exon":[{"start":101,"end":112}],
+         "Translation":{"start":102,"end":110,"length":3}}
+    parent={"ENST1":{"Parent":"ENSG1","version":2,"seq_region_name":"1","strand":1}}
+    row={"format":"Ensembl_expanded_transcript","original_transcript_id":"ENST1.2","raw":raw}
+    gene,model=module.supplementary_model(row,parent)
+    assert gene=="ENSG1" and model.coding==((101,110),)
+    assert module.boundary_offset(model.coding,model.strand,103)==2
+    row["original_transcript_id"]="ENST1.3"
+    with pytest.raises(ValueError,match="version"):
+        module.supplementary_model(row,parent)
+
+
+def test_biggenepred_relative_blocks_and_negative_coding_start():
+    raw={"name":"ENST1.2","chrom":"chr1","chromStart":100,"strand":"-",
+         "blockSizes":"10,20,","chromStarts":"0,100,","blockCount":2,
+         "thickStart":102,"thickEnd":218}
+    row={"format":"UCSC_bigGenePred","assembly":"hg38","original_transcript_id":"ENST1.2","raw":raw}
+    parent={"ENST1":{"Parent":"ENSG1","version":2,"seq_region_name":"1","strand":-1}}
+    _,model=module.supplementary_model(row,parent)
+    assert model.coding==((102,110),(200,218))
+    assert module.boundary_offset(model.coding,model.strand,217)==1
