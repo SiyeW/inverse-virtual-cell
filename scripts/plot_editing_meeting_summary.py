@@ -87,24 +87,30 @@ def expression_counts(root: Path):
     return results
 
 
-def count_bars(ax, labels, values, styles, legend_labels, *, show_totals=False):
+def count_bars(ax, labels, values, styles, legend_labels, *, show_totals=False, percent=False):
     expected_heights = []
     for x, row in enumerate(values):
+        total = sum(row)
+        assert total > 0
         bottom = 0
         for n, style in zip(row, styles):
             assert isinstance(n, int) and n >= 0
             if n:
-                ax.bar(x, n, bottom=bottom, width=.56, linewidth=.55, **style)
-                expected_heights.append(n)
-                small = n < 7
+                height = n / total * 100 if percent else n
+                ax.bar(x, height, bottom=bottom, width=.56, linewidth=.55, **style)
+                expected_heights.append(height)
+                small = height < 7
                 light = style["facecolor"] in (GRAY, "white")
-                ax.text(x, bottom + (n + 1.9 if small else n / 2), str(n), ha="center",
+                label = f"{height:.1f}%" if percent else str(n)
+                ax.text(x, bottom + (height + 1.9 if small else height / 2), label, ha="center",
                         va="bottom" if small else "center", fontsize=9,
                         color="#333333" if small or light else "white")
-            bottom += n
+                bottom += height
+        assert np.isclose(bottom, 100 if percent else total)
         if show_totals:
-            ax.text(x, bottom + 2.1, str(bottom), ha="center", va="bottom", fontsize=9)
-    assert [patch.get_height() for patch in ax.patches] == expected_heights
+            ax.text(x, 110 if percent else bottom + 2.1,
+                    f"n = {total}" if percent else str(total), ha="center", va="bottom", fontsize=9)
+    assert np.allclose([patch.get_height() for patch in ax.patches], expected_heights, rtol=0, atol=1e-12)
     ax.set_xticks(range(len(labels)), labels)
     ax.set_xlim(-.54, len(labels) - .46)
     ax.legend(handles=[Patch(label=label, **style) for style, label in zip(styles, legend_labels)],
@@ -112,7 +118,7 @@ def count_bars(ax, labels, values, styles, legend_labels, *, show_totals=False):
               columnspacing=1.1, handlelength=1.4, handletextpad=.45)
 
 
-def sequence_figure(support, effects):
+def sequence_figure(support, effects, *, percent=False):
     fig, (left, right) = plt.subplots(1, 2, figsize=(9.2, 4.8), sharey=True)
     fig.subplots_adjust(left=.09, right=.98, bottom=.22, top=.91, wspace=.19)
     left.set_title("Sequence changes in target RNA")
@@ -121,18 +127,18 @@ def sequence_figure(support, effects):
     types = ("SNV", "INS", "DEL")
     count_bars(left, ["Substitution", "Insertion", "Deletion"],
                [[support[kind, False], support[kind, True]] for kind in types],
-               [gray, blue], ["1 UMI family", "≥2 UMI families"], show_totals=True)
-    left.set_ylabel("Number of RNA sequence changes")
+               [gray, blue], ["1 UMI family", "≥2 UMI families"], show_totals=True, percent=percent)
+    left.set_ylabel("Proportion of sequence changes (%)" if percent else "Number of RNA sequence changes")
     right.set_title("Predicted effect of insertions and deletions")
     categories = ("Frameshift", "In-frame", "Unresolved")
     count_bars(right, ["Insertion", "Deletion"],
                [[effects[kind, category] for category in categories] for kind in ("INS", "DEL")],
                [{"facecolor": FRAME, "edgecolor": "white"}, blue,
                 {"facecolor": "white", "edgecolor": "#66747C", "hatch": "///"}],
-               ["Frameshift", "In-frame", "Across ORF end"])
+               ["Frameshift", "In-frame", "Across ORF end"], show_totals=percent, percent=percent)
     limit = max(sum(support[kind, supported] for supported in (False, True)) for kind in types)
-    left.set_ylim(0, limit * 1.14)
-    left.set_yticks(np.arange(0, limit + 1, 25))
+    left.set_ylim(0, 117 if percent else limit * 1.14)
+    left.set_yticks(np.arange(0, 101, 25) if percent else np.arange(0, limit + 1, 25))
     return fig
 
 
@@ -172,19 +178,22 @@ def main():
     for name in ("sequences", "coding", "rna-results", "output"):
         parser.add_argument("--" + name, type=Path, required=True)
     parser.add_argument("--commit", required=True)
+    parser.add_argument("--sequence-scale", choices=("count", "percent"), default="count")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=False)
     font = Path("C:/Windows/Fonts/arial.ttf")
     configure(font if font.is_file() else None)
     sequence = sequence_counts(args.sequences, args.coding)
     expression = expression_counts(args.rna_results)
-    figures = {"sequence_changes": sequence_figure(*sequence), "RNA_response_agreement": expression_figure(expression)}
+    figures = {"sequence_changes": sequence_figure(*sequence, percent=args.sequence_scale == "percent"),
+               "RNA_response_agreement": expression_figure(expression)}
     for name, fig in figures.items():
         save(fig, args.output, name)
     inputs = [args.sequences, args.coding, args.rna_results / "case_summary.csv"]
     for cohort in ("company", "chip01"):
         inputs.extend(args.rna_results / f"{cohort}_{suffix}" for suffix in ("profile_metadata.json", "guide_pairs.csv"))
     receipt = {"code_commit": args.commit,
+               "sequence_scale": args.sequence_scale,
                "inputs_sha256": {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in inputs},
                "figures_sha256": {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in args.output.iterdir()},
                "sequence_support_counts": {f"{kind}_{'ge2' if supported else 'one'}": n
