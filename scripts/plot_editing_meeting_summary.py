@@ -13,15 +13,16 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 import numpy as np
 
+from render_share_ready_figures import COLORS, LABELS, assert_drawn_points, configure, save
 
-INK = "#23323B"
-GRAY = "#D9E0E4"
-BLUE = "#3C748E"
-RED = "#AD5546"
-PAGE = (11.2, 6.3)
+
+GRAY = "#BAC2C7"
+BLUE = "#417893"
+FRAME = "#A47C55"
 
 
 def read_json(path: Path):
@@ -56,7 +57,7 @@ def sequence_counts(sequence_path: Path, coding_path: Path):
         row["reason"] == "deletion_crosses_coding_or_splice_boundary"
         for row in coding["events"] if row["category"] == "Unresolved"
     )
-    return support, effects, len(guides), coding["target_count"]
+    return support, effects
 
 
 def expression_counts(root: Path):
@@ -86,113 +87,83 @@ def expression_counts(root: Path):
     return results
 
 
-def title(fig, heading, subheading):
-    fig.text(.065, .934, heading, fontsize=21, fontweight="bold", color=INK, va="top")
-    fig.text(.065, .855, subheading, fontsize=11, color=INK, va="top", linespacing=1.45)
-
-
-def panel_title(ax, label, pad=12):
-    ax.set_title(label, loc="left", fontsize=12.5, fontweight="bold", pad=pad)
-
-
-def count_bars(ax, labels, values, colors, legend_labels, *, show_totals=False):
-    for y, row in zip(range(len(labels) - 1, -1, -1), values):
-        left = 0
-        for n, color in zip(row, colors):
+def count_bars(ax, labels, values, styles, legend_labels, *, show_totals=False):
+    expected_heights = []
+    for x, row in enumerate(values):
+        bottom = 0
+        for n, style in zip(row, styles):
+            assert isinstance(n, int) and n >= 0
             if n:
-                ax.barh(y, n, left=left, height=.43, color=color, zorder=3)
-                above = n < 7
-                ax.text(left + n / 2, y + (.26 if above else 0), str(n), ha="center",
-                        va="bottom" if above else "center", fontsize=10, zorder=4,
-                        color=INK if above or color in (GRAY, "#A9C3D1") else "white")
-            left += n
+                ax.bar(x, n, bottom=bottom, width=.56, linewidth=.55, **style)
+                expected_heights.append(n)
+                small = n < 7
+                light = style["facecolor"] in (GRAY, "white")
+                ax.text(x, bottom + (n + 1.9 if small else n / 2), str(n), ha="center",
+                        va="bottom" if small else "center", fontsize=9,
+                        color="#333333" if small or light else "white")
+            bottom += n
         if show_totals:
-            ax.text(left + 2, y, str(left), va="center", fontsize=11, color=INK)
-    ax.set_yticks(range(len(labels)), labels[::-1])
-    ax.set_ylim(-.57, len(labels) - .37)
-    ax.tick_params(axis="y", length=0, pad=8)
-    ax.spines["left"].set_visible(False)
-    ax.grid(axis="x", color="#E8ECEF", lw=.7)
-    ax.legend(handles=[Patch(facecolor=color, label=label) for color, label in zip(colors, legend_labels)],
-              loc="upper left", bbox_to_anchor=(0, -.27), ncol=len(colors),
-              fontsize=9, frameon=False, borderaxespad=0, columnspacing=1.0, handlelength=1.1)
+            ax.text(x, bottom + 2.1, str(bottom), ha="center", va="bottom", fontsize=9)
+    assert [patch.get_height() for patch in ax.patches] == expected_heights
+    ax.set_xticks(range(len(labels)), labels)
+    ax.set_xlim(-.54, len(labels) - .46)
+    ax.legend(handles=[Patch(label=label, **style) for style, label in zip(styles, legend_labels)],
+              loc="upper center", bbox_to_anchor=(.5, -.14), ncol=len(styles),
+              columnspacing=1.1, handlelength=1.4, handletextpad=.45)
 
 
-def sequence_figure(support, effects, guides, targets):
-    fig = plt.figure(figsize=PAGE)
-    title(fig, "Sequence changes observed in target RNA",
-          f"{guides:,} sgRNAs across {targets} targets with detectable target RNA and reads in the target region")
-    left, right = fig.add_gridspec(1, 2, left=.149, right=.963, bottom=.27, top=.731, wspace=.30).subplots()
-    panel_title(left, "A   Sequence changes and RNA support")
+def sequence_figure(support, effects):
+    fig, (left, right) = plt.subplots(1, 2, figsize=(9.2, 4.8), sharey=True)
+    fig.subplots_adjust(left=.09, right=.98, bottom=.22, top=.91, wspace=.19)
+    left.set_title("Sequence changes in target RNA")
+    gray = {"facecolor": GRAY, "edgecolor": "white"}
+    blue = {"facecolor": BLUE, "edgecolor": "white"}
     types = ("SNV", "INS", "DEL")
-    count_bars(left, ["Base substitution", "Insertion", "Deletion"],
+    count_bars(left, ["Substitution", "Insertion", "Deletion"],
                [[support[kind, False], support[kind, True]] for kind in types],
-               [GRAY, BLUE], ["1 UMI family", "≥2 UMI families"], show_totals=True)
-    left.set_xlabel("Number of sequence changes", labelpad=8)
-    panel_title(right, f"B   Predicted effect of {sum(effects.values())} indels")
+               [gray, blue], ["1 UMI family", "≥2 UMI families"], show_totals=True)
+    left.set_ylabel("Number of RNA sequence changes")
+    right.set_title("Predicted effect of insertions and deletions")
     categories = ("Frameshift", "In-frame", "Unresolved")
-    names = ("Frameshift", "In-frame", "Across ORF end")
     count_bars(right, ["Insertion", "Deletion"],
                [[effects[kind, category] for category in categories] for kind in ("INS", "DEL")],
-               [RED, BLUE, GRAY],
-               [f"{name} ({sum(effects[kind, category] for kind in ('INS', 'DEL'))})"
-                for name, category in zip(names, categories)], show_totals=True)
-    right.set_xlabel("Number of insertions and deletions", labelpad=8)
+               [{"facecolor": FRAME, "edgecolor": "white"}, blue,
+                {"facecolor": "white", "edgecolor": "#66747C", "hatch": "///"}],
+               ["Frameshift", "In-frame", "Across ORF end"])
     limit = max(sum(support[kind, supported] for supported in (False, True)) for kind in types)
-    for ax in (left, right):
-        ax.set_xlim(0, limit * 1.14)
-        ax.set_xticks(np.arange(0, limit + 1, 25))
-    fig.text(.065, .054, "Each change is counted once per sgRNA. Reading-frame effects are predicted from the annotated ORF.",
-             fontsize=9, color=INK)
+    left.set_ylim(0, limit * 1.14)
+    left.set_yticks(np.arange(0, limit + 1, 25))
     return fig
 
 
 def expression_figure(results):
-    fig = plt.figure(figsize=PAGE)
-    title(fig, "Similarity of RNA expression changes across sgRNAs",
-          "Within each sgRNA, compare RNA expression in records with predicted frameshift RNA\n"
-          "and records with reference RNA at the corresponding site.")
-    left, right = fig.add_gridspec(1, 2, width_ratios=(.87, 1.56), left=.127, right=.973,
-                                  bottom=.26, top=.682, wspace=.47).subplots()
-    panel_title(left, "A   Comparable sgRNAs per target", pad=24)
-    cohorts = ("company", "chip01")
-    count_bars(left, ["Company\nmerged", "Chip 1"], [results[cohort][0] for cohort in cohorts],
-               [GRAY, "#A9C3D1", BLUE], ["0 sgRNAs", "1 sgRNA", "≥2 sgRNAs"])
-    targets = max(sum(results[cohort][0]) for cohort in cohorts)
-    left.set_xlim(0, targets * 1.035)
-    left.set_xticks(np.arange(0, targets + 1, 25))
-    left.set_xlabel("Number of targets", labelpad=8)
-
-    panel_title(right, "B   Similarity of RNA changes", pad=24)
-    positions = [0, 1.18, 2.8, 3.98]
-    values = [data for cohort in cohorts for data in results[cohort][1:]]
-    colors = [RED, "#A7B2B9", RED, "#A7B2B9"]
-    boxes = right.boxplot(values, positions=positions, widths=.39, showfliers=False,
-                          patch_artist=True, medianprops={"color": INK, "linewidth": 1.3},
-                          whiskerprops={"color": "#667680"}, capprops={"color": "#667680"},
-                          boxprops={"linewidth": .9}, zorder=3)
-    for i, (box, pos, points, color) in enumerate(zip(boxes["boxes"], positions, values, colors)):
-        box.set(facecolor="white", edgecolor=color, alpha=.8)
-        y = np.sort(points)
-        spread = (np.mod(np.arange(len(y)) * .61803398875, 1) - .5) * .38
-        right.scatter(pos + spread, y, s=18 if i % 2 == 0 else 5,
-                      c=color, alpha=.72 if i % 2 == 0 else .28, linewidths=0,
-                      rasterized=False, zorder=4)
-    right.set_xticks(positions, [f"{('Same target' if i % 2 == 0 else 'Different targets')}\n{len(data):,} pairs"
-                                 for i, data in enumerate(values)], fontsize=9.5)
-    for center, label in [(0.59, "Company merged"), (3.39, "Chip 1")]:
-        right.text(center, 1.02, label, ha="center", va="bottom", fontsize=10,
-                   fontweight="bold", transform=right.get_xaxis_transform())
-    bound = max(.4, np.ceil(max(abs(r) for data in values for r in data) * 10) / 10)
-    right.set_ylim(-bound, bound)
-    right.set_yticks(np.linspace(-bound, bound, 5))
-    right.set_ylabel("Pearson r of RNA changes", labelpad=8)
-    right.axhline(0, color="#8B979E", linewidth=.9, zorder=1)
-    right.grid(axis="y", color="#E8ECEF", lw=.7, zorder=0)
-    right.set_xlim(-.62, 4.60)
-    fig.text(.065, .092, f"Each source has {targets} targets. A sgRNA can be compared when both RNA groups are present.",
-             fontsize=9, color=INK)
-    fig.text(.065, .054, "Each point is one sgRNA pair. All eligible pairs are shown.", fontsize=9, color=INK)
+    fig, ax = plt.subplots(figsize=(7.2, 4.5))
+    fig.subplots_adjust(left=.14, right=.98, bottom=.13, top=.96)
+    expected = []
+    for j, (cohort, color) in enumerate(zip(("chip01", "company"), COLORS)):
+        for i, points in enumerate(results[cohort][1:]):
+            position = i + (j - .5) * .24
+            box = ax.boxplot([points], positions=[position], widths=.19, patch_artist=True,
+                             manage_ticks=False, showfliers=False,
+                             medianprops={"color": color, "linewidth": 1.25},
+                             whiskerprops={"color": color, "linewidth": .75},
+                             capprops={"color": color, "linewidth": .75})
+            box["boxes"][0].set(facecolor=matplotlib.colors.to_rgba(color, .12),
+                                edgecolor=color, linewidth=.75)
+            x = position + np.random.default_rng(90210 + j * 10 + i).uniform(-.065, .065, len(points))
+            ax.scatter(x, points, s=5.5, alpha=.35, color=color, edgecolors="none", zorder=2)
+            expected.extend(zip(x, points))
+    assert_drawn_points(ax, expected)
+    handles = [Line2D([], [], marker="o", markersize=4, linestyle="none", color=color, label=label)
+               for color, label in zip(COLORS[:2], LABELS[:2])]
+    ax.legend(handles=handles, loc="upper right", ncol=2, columnspacing=1.3, handletextpad=.4)
+    ax.set_xticks([0, 1], ["Same target", "Different targets"])
+    bound = max(.4, np.ceil(max(abs(r) for _, r in expected) * 10) / 10)
+    ax.set(xlim=(-.48, 1.48), ylim=(-bound, bound), ylabel="Correlation of RNA changes (Pearson r)")
+    ax.set_yticks(np.linspace(-bound, bound, 5))
+    ax.set_axisbelow(True)
+    ax.grid(axis="y", color="#ededed", linewidth=.45)
+    ax.axhline(0, color="#999999", linewidth=.65, zorder=1)
     return fig
 
 
@@ -203,23 +174,24 @@ def main():
     parser.add_argument("--commit", required=True)
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=False)
-    plt.rcParams.update({"font.family": "DejaVu Sans", "font.size": 10.5,
-                         "axes.spines.top": False, "axes.spines.right": False,
-                         "axes.labelcolor": INK, "xtick.color": INK, "ytick.color": INK,
-                         "svg.fonttype": "path"})
+    font = Path("C:/Windows/Fonts/arial.ttf")
+    configure(font if font.is_file() else None)
     sequence = sequence_counts(args.sequences, args.coding)
     expression = expression_counts(args.rna_results)
     figures = {"sequence_changes": sequence_figure(*sequence), "RNA_response_agreement": expression_figure(expression)}
     for name, fig in figures.items():
-        for suffix in ("png", "svg"):
-            fig.savefig(args.output / f"{name}.{suffix}", dpi=300, facecolor="white")
-        plt.close(fig)
+        save(fig, args.output, name)
     inputs = [args.sequences, args.coding, args.rna_results / "case_summary.csv"]
     for cohort in ("company", "chip01"):
         inputs.extend(args.rna_results / f"{cohort}_{suffix}" for suffix in ("profile_metadata.json", "guide_pairs.csv"))
     receipt = {"code_commit": args.commit,
                "inputs_sha256": {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in inputs},
                "figures_sha256": {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in args.output.iterdir()},
+               "sequence_support_counts": {f"{kind}_{'ge2' if supported else 'one'}": n
+                                           for (kind, supported), n in sequence[0].items()},
+               "indel_consequence_counts": {f"{kind}_{category}": n
+                                             for (kind, category), n in sequence[1].items()},
+               "all_scatter_values_and_bar_heights_verified": True,
                "target_counts_by_0_1_ge2_comparable_guides": {k: v[0] for k, v in expression.items()},
                "plotted_pair_counts": {k: {"same": len(v[1]), "different": len(v[2])} for k, v in expression.items()}}
     (args.output / "render_receipt.json").write_text(json.dumps(receipt, indent=2), encoding="utf-8")
