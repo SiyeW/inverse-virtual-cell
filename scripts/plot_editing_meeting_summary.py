@@ -60,6 +60,55 @@ def sequence_counts(sequence_path: Path, coding_path: Path):
     return support, effects
 
 
+def guide_sequence_summary(sequence_path: Path, coding_path: Path):
+    source = read_json(sequence_path)["company"]
+    coding = read_json(coding_path)
+    guides = {row["guide"] for row in source["guides"] if row["primary_197"]}
+    assert len(guides) == coding["guide_count"] == 197
+    variants = [row for row in source["variants"] if row["primary_197"]]
+    members = {"Any change": {row["guide"] for row in variants}}
+    for label, kind in (("Substitution", "SNV"), ("Insertion", "INS"), ("Deletion", "DEL")):
+        members[label] = {row["guide"] for row in variants if row["kind"] == kind}
+    members["Any indel"] = {row["guide"] for row in coding["events"]}
+    for label, category in (("Frameshift", "Frameshift"), ("In-frame", "In-frame"),
+                            ("Across ORF end", "Unresolved")):
+        members[label] = {row["guide"] for row in coding["events"] if row["category"] == category}
+    assert members["Any indel"] == members["Insertion"] | members["Deletion"]
+    assert all(group <= guides for group in members.values())
+    assert members["Any change"] == members["Substitution"] | members["Any indel"]
+    return {"denominator": len(guides), "counts": {key: len(group) for key, group in members.items()},
+            "guide_membership": {key: sorted(group) for key, group in members.items()}}
+
+
+def guide_sequence_figure(summary, *, percent=True):
+    denominator = summary["denominator"]
+    counts = summary["counts"]
+    fig, axes = plt.subplots(1, 2, figsize=(9.2, 4.8), sharey=True)
+    fig.subplots_adjust(left=.09, right=.98, bottom=.18, top=.9, wspace=.19)
+    definitions = [(["Any change", "Substitution", "Insertion", "Deletion"],
+                    [BLUE] * 4, "RNA sequence changes"),
+                   (["Frameshift", "In-frame", "Across ORF end"],
+                    [FRAME, BLUE, "white"], "Predicted indel effects")]
+    for ax, (labels, colors, title) in zip(axes, definitions):
+        values = [counts[label] / denominator * 100 if percent else counts[label] for label in labels]
+        bars = ax.bar(range(len(labels)), values, width=.56, color=colors, linewidth=.6,
+                      edgecolor=["#66747C" if color == "white" else "white" for color in colors])
+        for bar, label, value in zip(bars, labels, values):
+            if label == "Across ORF end":
+                bar.set_hatch("///")
+            text = f"{value:.1f}%\n{counts[label]}/{denominator}" if percent else str(counts[label])
+            ax.text(bar.get_x() + bar.get_width() / 2, value + (1.2 if percent else 2),
+                    text, ha="center", va="bottom", fontsize=9, linespacing=1.25)
+        assert np.allclose([bar.get_height() for bar in bars], values, rtol=0, atol=1e-12)
+        ax.set_xticks(range(len(labels)), [label.replace("Across ORF end", "Across\nORF end") for label in labels])
+        ax.set_title(title)
+        ax.set_xlim(-.6, len(labels) - .4)
+    axes[0].set_ylabel(f"sgRNAs (% of {denominator})" if percent else "Number of sgRNAs")
+    axes[0].set_ylim(0, 70 if percent else 140)
+    axes[0].set_yticks(np.arange(0, 71, 10) if percent else np.arange(0, 141, 20))
+    return fig
+
+
 def expression_counts(root: Path):
     cases = read_csv(root / "case_summary.csv")
     results = {}
@@ -179,13 +228,18 @@ def main():
         parser.add_argument("--" + name, type=Path, required=True)
     parser.add_argument("--commit", required=True)
     parser.add_argument("--sequence-scale", choices=("count", "percent"), default="count")
+    parser.add_argument("--sequence-unit", choices=("change", "guide"), default="change")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=False)
     font = Path("C:/Windows/Fonts/arial.ttf")
     configure(font if font.is_file() else None)
     sequence = sequence_counts(args.sequences, args.coding)
+    guide_summary = guide_sequence_summary(args.sequences, args.coding)
     expression = expression_counts(args.rna_results)
-    figures = {"sequence_changes": sequence_figure(*sequence, percent=args.sequence_scale == "percent"),
+    sequence_plot = (guide_sequence_figure(guide_summary, percent=args.sequence_scale == "percent")
+                     if args.sequence_unit == "guide"
+                     else sequence_figure(*sequence, percent=args.sequence_scale == "percent"))
+    figures = {"sequence_changes": sequence_plot,
                "RNA_response_agreement": expression_figure(expression)}
     for name, fig in figures.items():
         save(fig, args.output, name)
@@ -194,6 +248,8 @@ def main():
         inputs.extend(args.rna_results / f"{cohort}_{suffix}" for suffix in ("profile_metadata.json", "guide_pairs.csv"))
     receipt = {"code_commit": args.commit,
                "sequence_scale": args.sequence_scale,
+               "sequence_unit": args.sequence_unit,
+               "guide_sequence_summary": guide_summary,
                "inputs_sha256": {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in inputs},
                "figures_sha256": {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in args.output.iterdir()},
                "sequence_support_counts": {f"{kind}_{'ge2' if supported else 'one'}": n
