@@ -26,7 +26,7 @@ COHORT = {'company': 'Company merged', 'chip01': 'Chip 1'}
 OTHER = '#AAB2B9'
 SAME = '#285A88'
 IND = '#A6403D'
-NTC = '#2C8B45'
+NTC = '#80CC93'
 OTHER_WITH_NTC = '#4C4C4C'
 FIXED_SIZE = (10.2, 10.8)
 DPI = 300
@@ -64,13 +64,15 @@ def draw_case(row, arrays, variants, destination, *, all_chips=False, ntc=None):
     center = (low + high) / 2
     span = .55 * (high - low).max()
     assert span > 0
+    xlim = (center[0] - span, center[0] + span)
+    ylim = (center[1] - span, center[1] + span)
     annotations = []
     variant_axes = list(grid.flat)
     other_color = OTHER if ntc is None else OTHER_WITH_NTC
     for index, (ax, event) in enumerate(zip(variant_axes, panels)):
         other_style = dict(s=6, color=other_color, alpha=.67 if event is None else .7, edgecolors='none')
         if ntc is not None:
-            ax.scatter(*ntc.T, s=1.7, color=NTC, alpha=.13, edgecolors='none')
+            ax.scatter(*ntc.T, s=1.7, color=NTC, alpha=.17, edgecolors='none')
             other_style = dict(s=11, color=other_color, alpha=.78, marker='x', linewidths=.65)
         if event is None:
             ax.scatter(*xy.T, **other_style)
@@ -97,7 +99,7 @@ def draw_case(row, arrays, variants, destination, *, all_chips=False, ntc=None):
             annotations.append({key: event[key] for key in ('guide', 'chrom', 'pos0', 'ref', 'alt', 'category')}
                                | {'barcode_records': len(support), 'RNA_UMI_families': event['guide_alt']})
         assert_drawn_points(ax, plotted)
-        ax.set(xlim=(center[0] - span, center[0] + span), ylim=(center[1] - span, center[1] + span))
+        ax.set(xlim=xlim, ylim=ylim)
         if all_chips:
             ax.set_box_aspect(1)
         else:
