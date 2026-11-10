@@ -26,8 +26,9 @@ COHORT = {'company': 'Company merged', 'chip01': 'Chip 1'}
 OTHER = '#AAB2B9'
 SAME = '#285A88'
 IND = '#A6403D'
-NTC = '#80CC93'
-OTHER_WITH_NTC = '#4C4C4C'
+IND_WITH_NTC = '#D73936'
+NTC = '#AEDBB5'
+OTHER_WITH_NTC = '#7A6352'
 FIXED_SIZE = (10.2, 10.8)
 DPI = 300
 
@@ -69,10 +70,11 @@ def draw_case(row, arrays, variants, destination, *, all_chips=False, ntc=None):
     annotations = []
     variant_axes = list(grid.flat)
     other_color = OTHER if ntc is None else OTHER_WITH_NTC
+    indel_color = IND if ntc is None else IND_WITH_NTC
     for index, (ax, event) in enumerate(zip(variant_axes, panels)):
         other_style = dict(s=6, color=other_color, alpha=.67 if event is None else .7, edgecolors='none')
         if ntc is not None:
-            ax.scatter(*ntc.T, s=1.7, color=NTC, alpha=.17, edgecolors='none')
+            ax.scatter(*ntc.T, s=1.2, color=NTC, alpha=1, edgecolors='none')
             other_style = dict(s=11, color=other_color, alpha=.78, marker='x', linewidths=.65)
         if event is None:
             ax.scatter(*xy.T, **other_style)
@@ -86,7 +88,7 @@ def draw_case(row, arrays, variants, destination, *, all_chips=False, ntc=None):
             same[highlighted] = False
             ax.scatter(*xy[guides != event['guide']].T, **other_style)
             ax.scatter(*xy[same].T, s=13, facecolors='none', edgecolors=SAME, linewidths=.65, alpha=.9)
-            ax.scatter(*xy[highlighted].T, s=23, color=IND, edgecolors='none')
+            ax.scatter(*xy[highlighted].T, s=23, color=indel_color, edgecolors='none')
             kind = 'deletion' if event['kind'] == 'DEL' else 'insertion'
             number = event['guide'].rsplit('-', 1)[-1]
             location = f"{event['chrom']}:{event['pos0'] + 1:,}"
@@ -121,7 +123,7 @@ def draw_case(row, arrays, variants, destination, *, all_chips=False, ntc=None):
         fig.supylabel(f'PC 2 ({100 * variance[1]:.1f}%)', fontsize=10, x=.035 / width)
     legend = [(other_color, 'Target records')]
     if variants:
-        legend = [(other_color, 'Other sgRNAs'), (SAME, 'Same sgRNA'), (IND, 'Supports shown indel')]
+        legend = [(other_color, 'Other sgRNAs'), (SAME, 'Same sgRNA'), (indel_color, 'Supports shown indel')]
     if ntc is not None:
         legend.insert(0, (NTC, f'NTC (n = {len(ntc):,})'))
     handles = [Line2D([], [], linestyle='none', marker='x' if color == OTHER_WITH_NTC else 'o',
