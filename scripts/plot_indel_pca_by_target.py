@@ -26,7 +26,8 @@ COHORT = {'company': 'Company merged', 'chip01': 'Chip 1'}
 OTHER = '#AAB2B9'
 SAME = '#285A88'
 IND = '#A6403D'
-NTC = '#3C8D53'
+NTC = '#2C8B45'
+OTHER_WITH_NTC = '#4C4C4C'
 FIXED_SIZE = (10.2, 10.8)
 DPI = 300
 
@@ -65,11 +66,14 @@ def draw_case(row, arrays, variants, destination, *, all_chips=False, ntc=None):
     assert span > 0
     annotations = []
     variant_axes = list(grid.flat)
+    other_color = OTHER if ntc is None else OTHER_WITH_NTC
     for index, (ax, event) in enumerate(zip(variant_axes, panels)):
+        other_style = dict(s=6, color=other_color, alpha=.67 if event is None else .7, edgecolors='none')
         if ntc is not None:
-            ax.scatter(*ntc.T, s=2.0, color=NTC, alpha=.075, edgecolors='none')
+            ax.scatter(*ntc.T, s=1.7, color=NTC, alpha=.13, edgecolors='none')
+            other_style = dict(s=11, color=other_color, alpha=.78, marker='x', linewidths=.65)
         if event is None:
-            ax.scatter(*xy.T, s=6, color=OTHER, alpha=.67, edgecolors='none')
+            ax.scatter(*xy.T, **other_style)
             ax.set_title('RNA indels observed = 0', fontsize=9)
         else:
             support = [cell for cell in event['cell_support'] if cell['alt'] > 0]
@@ -78,7 +82,7 @@ def draw_case(row, arrays, variants, destination, *, all_chips=False, ntc=None):
             assert highlighted and len(set(highlighted)) == len(highlighted)
             same = guides == event['guide']
             same[highlighted] = False
-            ax.scatter(*xy[guides != event['guide']].T, s=6, color=OTHER, alpha=.7, edgecolors='none')
+            ax.scatter(*xy[guides != event['guide']].T, **other_style)
             ax.scatter(*xy[same].T, s=13, facecolors='none', edgecolors=SAME, linewidths=.65, alpha=.9)
             ax.scatter(*xy[highlighted].T, s=23, color=IND, edgecolors='none')
             kind = 'deletion' if event['kind'] == 'DEL' else 'insertion'
@@ -113,12 +117,13 @@ def draw_case(row, arrays, variants, destination, *, all_chips=False, ntc=None):
     if not all_chips:
         fig.supxlabel(f'PC 1 ({100 * variance[0]:.1f}%)', fontsize=10, y=.34 / height)
         fig.supylabel(f'PC 2 ({100 * variance[1]:.1f}%)', fontsize=10, x=.035 / width)
-    legend = [(OTHER, 'Target records')]
+    legend = [(other_color, 'Target records')]
     if variants:
-        legend = [(OTHER, 'Other sgRNAs'), (SAME, 'Same sgRNA'), (IND, 'Supports shown indel')]
+        legend = [(other_color, 'Other sgRNAs'), (SAME, 'Same sgRNA'), (IND, 'Supports shown indel')]
     if ntc is not None:
         legend.insert(0, (NTC, f'NTC (n = {len(ntc):,})'))
-    handles = [Line2D([], [], linestyle='none', marker='o', markerfacecolor='none' if color == SAME else color,
+    handles = [Line2D([], [], linestyle='none', marker='x' if color == OTHER_WITH_NTC else 'o',
+                      markerfacecolor='none' if color == SAME else color,
                       markeredgecolor=color, markeredgewidth=.7, markersize=4, label=label)
                for color, label in legend]
     legend_loc = 'upper left' if all_chips else 'lower center'
