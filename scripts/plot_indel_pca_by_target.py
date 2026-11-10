@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter, defaultdict
+from contextlib import ExitStack
 import csv
 import hashlib
 import io
@@ -25,11 +26,12 @@ COHORT = {'company': 'Company merged', 'chip01': 'Chip 1'}
 OTHER = '#AAB2B9'
 SAME = '#285A88'
 IND = '#A6403D'
+NTC = '#3C8D53'
 FIXED_SIZE = (10.2, 10.8)
 DPI = 300
 
 
-def draw_case(row, arrays, variants, destination, *, all_chips=False):
+def draw_case(row, arrays, variants, destination, *, all_chips=False, ntc=None):
     xy = arrays['target_PCA'][:, :2]
     variance = arrays['variance_ratio']
     guides = arrays['guide'].astype(str)
@@ -54,12 +56,18 @@ def draw_case(row, arrays, variants, destination, *, all_chips=False):
     top_margin = 1.04 if all_chips else .76
     fig.subplots_adjust(left=.58 / width, right=.98, top=1 - top_margin / height,
                         bottom=.80 / height, wspace=.21, hspace=.31)
-    low, high = xy.min(axis=0).astype(float), xy.max(axis=0).astype(float)
+    if ntc is not None:
+        assert ntc.shape == (19342, 2) and np.isfinite(ntc).all()
+    plotted = xy if ntc is None else np.vstack((xy, ntc))
+    low, high = plotted.min(axis=0).astype(float), plotted.max(axis=0).astype(float)
     center = (low + high) / 2
     span = .55 * (high - low).max()
     assert span > 0
     annotations = []
-    for index, (ax, event) in enumerate(zip(grid.flat, panels)):
+    variant_axes = list(grid.flat)
+    for index, (ax, event) in enumerate(zip(variant_axes, panels)):
+        if ntc is not None:
+            ax.scatter(*ntc.T, s=2.0, color=NTC, alpha=.075, edgecolors='none')
         if event is None:
             ax.scatter(*xy.T, s=6, color=OTHER, alpha=.67, edgecolors='none')
             ax.set_title('RNA indels observed = 0', fontsize=9)
@@ -84,7 +92,7 @@ def draw_case(row, arrays, variants, destination, *, all_chips=False):
             ax.set_title(f'sgRNA {number} · {change} (n = {len(support)})\n{location} · {category}', fontsize=9)
             annotations.append({key: event[key] for key in ('guide', 'chrom', 'pos0', 'ref', 'alt', 'category')}
                                | {'barcode_records': len(support), 'RNA_UMI_families': event['guide_alt']})
-        assert_drawn_points(ax, xy)
+        assert_drawn_points(ax, plotted)
         ax.set(xlim=(center[0] - span, center[0] + span), ylim=(center[1] - span, center[1] + span))
         if all_chips:
             ax.set_box_aspect(1)
@@ -97,7 +105,7 @@ def draw_case(row, arrays, variants, destination, *, all_chips=False):
         if all_chips and index == 0:
             ax.set_xlabel(f'PC 1 ({100 * variance[0]:.1f}%)')
             ax.set_ylabel(f'PC 2 ({100 * variance[1]:.1f}%)')
-    for ax in list(grid.flat)[len(panels):]:
+    for ax in variant_axes[len(panels):]:
         ax.set_visible(False)
     cohort_label = 'All chips' if all_chips else COHORT[row['dataset']]
     fig.suptitle(f"{target_display(row)} · {cohort_label} ({len(xy)} records)",
@@ -108,6 +116,8 @@ def draw_case(row, arrays, variants, destination, *, all_chips=False):
     legend = [(OTHER, 'Target records')]
     if variants:
         legend = [(OTHER, 'Other sgRNAs'), (SAME, 'Same sgRNA'), (IND, 'Supports shown indel')]
+    if ntc is not None:
+        legend.insert(0, (NTC, f'NTC (n = {len(ntc):,})'))
     handles = [Line2D([], [], linestyle='none', marker='o', markerfacecolor='none' if color == SAME else color,
                       markeredgecolor=color, markeredgewidth=.7, markersize=4, label=label)
                for color, label in legend]
@@ -116,7 +126,7 @@ def draw_case(row, arrays, variants, destination, *, all_chips=False):
     fig.legend(handles=handles, loc=legend_loc, bbox_to_anchor=legend_anchor, ncol=len(handles),
                fontsize=8, handletextpad=.4, columnspacing=1.4)
     fig.savefig(destination, dpi=DPI, bbox_inches=fig.bbox_inches if all_chips else 'tight', pad_inches=.06)
-    positions = [list(ax.get_position().bounds) for ax in list(grid.flat)[:len(panels)]]
+    positions = {index: list(ax.get_position().bounds) for index, ax in enumerate(variant_axes[:len(panels)])}
     plt.close(fig)
     return annotations, positions
 
@@ -179,8 +189,11 @@ def main():
         parser.add_argument('--' + name, type=Path, required=True)
     parser.add_argument('--commit', required=True)
     parser.add_argument('--all-chips', action='store_true', help='Render the pooled data on a fixed 3 by 3 canvas')
+    parser.add_argument('--ntc-coordinates', type=Path, help='Overlay projected NTC records on pooled figures')
     parser.add_argument('--preview-target', action='append', default=[])
     args = parser.parse_args()
+    if args.ntc_coordinates and not args.all_chips:
+        parser.error('--ntc-coordinates requires --all-chips')
     with args.cases.open(encoding='utf-8', newline='') as handle:
         cases = {r['dataset'] + '/' + r['target_gene_id']: r for r in csv.DictReader(handle)}
     labels = json.loads(args.labels.read_text(encoding='utf-8'))
@@ -199,9 +212,16 @@ def main():
     entries = []
     counts = Counter()
     fixed_positions = {}
-    with zipfile.ZipFile(args.coordinates) as archive:
+    with ExitStack() as stack:
+        archive = stack.enter_context(zipfile.ZipFile(args.coordinates))
         sources = json.loads(archive.read('manifest.json'))['files']
         assert set(cases) == {key for key in sources if key.split('/', 1)[0] in datasets}
+        if args.ntc_coordinates:
+            controls = stack.enter_context(zipfile.ZipFile(args.ntc_coordinates))
+            control_sources = json.loads(controls.read('manifest.json'))['files']
+            required = {key for key, row in cases.items()
+                        if not args.preview_target or row['target_gene_id'] in args.preview_target}
+            assert required <= set(control_sources) <= set(cases)
         args.output.mkdir(parents=True, exist_ok=False)
         for key, row in sorted(cases.items()):
             if args.preview_target and row['target_gene_id'] not in args.preview_target:
@@ -209,13 +229,21 @@ def main():
             npz = archive.read(key + '.npz')
             assert hashlib.sha256(npz).hexdigest() == sources[key]['subset_sha256']
             events = sorted(variants[key], key=lambda v: (v['guide'], v['pos0'], v['ref'], v['alt']))
-            filename = ('all_chips/' + row['target_gene_id'] if args.all_chips else key) + '.png'
+            prefix = 'all_chips_ntc' if args.ntc_coordinates else 'all_chips'
+            filename = (prefix + '/' + row['target_gene_id'] if args.all_chips else key) + '.png'
             destination = args.output / filename
             destination.parent.mkdir(exist_ok=True)
+            ntc = None
+            if args.ntc_coordinates:
+                source = control_sources[key]
+                raw = controls.read(key + '.npy')
+                assert source['source_sha256'] == sources[key]['source_sha256']
+                assert hashlib.sha256(raw).hexdigest() == source['projection_sha256']
+                ntc = np.load(io.BytesIO(raw), allow_pickle=False)
             with np.load(io.BytesIO(npz), allow_pickle=False) as arrays:
-                annotations, positions = draw_case(row, arrays, events, destination, all_chips=args.all_chips)
+                annotations, positions = draw_case(row, arrays, events, destination, all_chips=args.all_chips, ntc=ntc)
             if args.all_chips:
-                for slot, position in enumerate(positions):
+                for slot, position in positions.items():
                     expected = fixed_positions.setdefault(slot, position)
                     assert np.allclose(expected, position, atol=1e-12, rtol=0), (key, slot)
             assert len(annotations) == len(events)
@@ -231,15 +259,22 @@ def main():
         assert len(entries) == len(cases)
         assert sum(r['indels'] for r in entries) == sum(map(len, variants.values()))
     gallery(args.output / 'index.html', entries, all_chips=args.all_chips)
+    inputs = [args.coordinates, args.cases, args.labels]
+    if args.ntc_coordinates:
+        inputs.append(args.ntc_coordinates)
     receipt = {'code_commit': args.commit, 'complete': not args.preview_target,
                'inputs_sha256': {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
-                                 for p in (args.coordinates, args.cases, args.labels)},
-               'PCA_scope': 'all RNA records for the same target', 'background_NTC_records': 0,
+                                 for p in inputs},
+               'PCA_scope': 'all RNA records for the same target',
+               'background_NTC_records': 19342 if args.ntc_coordinates else 0,
                'figures': dict(counts), 'indels': sum(r['indels'] for r in entries), 'cases': entries}
     if args.all_chips:
         receipt['display_label'] = 'All chips'
-        receipt['fixed_grid'] = {'rows': 3, 'columns': 3, 'pixels': [round(n * DPI) for n in FIXED_SIZE],
+        receipt['fixed_grid'] = {'rows': 3, 'columns': 3,
+                                 'pixels': [round(n * DPI) for n in FIXED_SIZE],
                                  'slot_positions': fixed_positions}
+    if args.ntc_coordinates:
+        receipt['NTC_projection'] = 'all pooled NTC records in each target panel, on that target PCA'
     (args.output / 'render_receipt.json').write_text(json.dumps(receipt, ensure_ascii=False, indent=2), encoding='utf-8')
     print(json.dumps({key: receipt[key] for key in ('complete', 'figures', 'indels')}), flush=True)
 
