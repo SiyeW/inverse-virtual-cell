@@ -49,8 +49,11 @@ def run(config):
             if actual != expected:
                 raise ValueError('Pinned source differs: ' + name)
         environment = os.environ | config.get('environment', {})
-        environment.update(OMP_NUM_THREADS='2', OPENBLAS_NUM_THREADS='2', MKL_NUM_THREADS='2',
-                           NUMEXPR_NUM_THREADS='2', NUMBA_NUM_THREADS='2')
+        threads = str(config.get('blas_threads', 2))
+        if threads not in ('1', '2'):
+            raise ValueError('The pilot supports one or two numerical threads')
+        environment.update(OMP_NUM_THREADS=threads, OPENBLAS_NUM_THREADS=threads, MKL_NUM_THREADS=threads,
+                           NUMEXPR_NUM_THREADS=threads, NUMBA_NUM_THREADS=threads)
 
         def memory_limit():
             maximum = 32 * 1024**3

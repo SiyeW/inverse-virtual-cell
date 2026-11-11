@@ -1,4 +1,10 @@
 # Read the exact integer count vectors exported by prepare_two_target_rna.py.
+write_gzip_csv <- function(value,path) {
+  stream <- gzfile(path,"wt")
+  on.exit(close(stream))
+  write.csv(value,stream,row.names=FALSE)
+}
+
 read_two_target_counts <- function(input, seurat_keys=FALSE) {
   suppressPackageStartupMessages(library(Matrix))
   dimensions <- read.delim(file.path(input,"matrix_dimensions.tsv"))
@@ -24,7 +30,9 @@ read_two_target_counts <- function(input, seurat_keys=FALSE) {
   colnames(matrix) <- cells$cell_barcode
   stopifnot(!anyDuplicated(rownames(matrix)),isTRUE(validObject(matrix)),
             identical(as.numeric(Matrix::colSums(matrix)),as.numeric(cells$total_counts)))
-  cells$guide_id[is.na(cells$guide_id)] <- ""
+  for(column in intersect(c("guide_id","target_gene_id","target_gene_name"),colnames(cells))) {
+    cells[[column]][is.na(cells[[column]])] <- ""
+  }
   cells$pilot_record <- as.logical(cells$pilot_record)
   stopifnot(!anyNA(cells$pilot_record))
   list(counts=matrix,cells=cells,genes=genes)
