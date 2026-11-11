@@ -25,6 +25,16 @@ configure_object <- function(y,g,meta,guides) {
   object
 }
 
+validate_calibration_controls <- function(calibration,nt_guides) {
+  # Singleton results store the actual control guide in grna_id. grna_target
+  # deliberately holds the shared biological label "non-targeting".
+  stopifnot(nrow(calibration)>0L,
+    all(c("grna_id","grna_target") %in% colnames(calibration)),
+    all(calibration$grna_id %in% nt_guides),
+    all(calibration$grna_target=="non-targeting"))
+  invisible(TRUE)
+}
+
 self_test <- function() {
   set.seed(711)
   group <- c(rep("N1",20),rep("N2",20),rep("T1",16))
@@ -40,58 +50,87 @@ self_test <- function() {
   object <- configure_object(y,g,meta,"T1")
   object <- run_calibration_check(object,n_calibration_pairs=4L,calibration_group_size=1L,
     parallel=FALSE,n_processors=2L,print_progress=FALSE,output_amount=2L)
+  calibration <- get_result(object,"run_calibration_check")
+  validate_calibration_controls(calibration,c("N1","N2"))
+  incorrect <- as.data.frame(calibration)
+  incorrect$grna_id[1] <- "T1"
+  stopifnot(inherits(try(validate_calibration_controls(incorrect,c("N1","N2")),silent=TRUE),"try-error"))
+  checkpoint <- tempfile(fileext=".rds")
+  saveRDS(object,checkpoint)
+  object <- readRDS(checkpoint)
+  unlink(checkpoint)
+  stopifnot(identical(as.data.frame(get_result(object,"run_calibration_check")),as.data.frame(calibration)))
   object <- run_discovery_analysis(object,parallel=FALSE,n_processors=2L,print_progress=FALSE,output_amount=2L)
   result <- get_result(object,"run_discovery_analysis")
   stopifnot(nrow(result)>0L,all(result$grna_target=="T1"),
             all(result$p_value[is.finite(result$p_value)]>=0),
             all(result$p_value[is.finite(result$p_value)]<=1),
             any(result$response_id=="gene1" & result$n_nonzero_trt==0))
-  cat("RAW_COUNTS_FROZEN_CALLS_AND_COMPLETE_LOSS_TEST_VERIFIED\n")
+  cat("RAW_COUNTS_FROZEN_CALLS_COMPLETE_LOSS_AND_CALIBRATION_CHECKPOINT_VERIFIED\n")
 }
 
-run <- function(input,output) {
+run <- function(input,output,checkpoint=NULL) {
   dir.create(output,recursive=TRUE,showWarnings=FALSE)
   stage <- function(value) {
     writeLines(value,file.path(output,"phase.txt"))
     cat(value," ",format(Sys.time(),"%Y-%m-%dT%H:%M:%S%z"),"\n",sep="");flush.console()
   }
-  stage("read_exact_whole_gene_counts")
-  prepared <- read_two_target_counts(input)
-  selected <- prepared$cells$role=="non_targeting_control" |
-    prepared$cells$target_gene_name %in% c("TYMSOS","UBA1")
-  meta <- prepared$cells[selected,,drop=FALSE]
-  y <- prepared$counts[,selected,drop=FALSE]
-  rm(prepared);gc()
+  if(is.null(checkpoint)) {
+    stage("read_exact_whole_gene_counts")
+    prepared <- read_two_target_counts(input)
+    selected <- prepared$cells$role=="non_targeting_control" |
+      prepared$cells$target_gene_name %in% c("TYMSOS","UBA1")
+    meta <- prepared$cells[selected,,drop=FALSE]
+    y <- prepared$counts[,selected,drop=FALSE]
+    rm(prepared);gc()
+  } else {
+    stage("resume_saved_configured_object")
+    meta <- read.csv(gzfile(file.path(input,"cells.csv.gz")),stringsAsFactors=FALSE)
+    meta <- meta[meta$role=="non_targeting_control" |
+      meta$target_gene_name %in% c("TYMSOS","UBA1"),,drop=FALSE]
+    object <- readRDS(checkpoint)
+    stopifnot(identical(colnames(sceptre:::get_response_matrix(object)),meta$cell_barcode),
+      identical(object@cells_in_use,seq_len(nrow(meta))),
+      setequal(object@grna_assignments$all_nt_idxs,which(meta$role=="non_targeting_control")))
+  }
   stopifnot(nrow(meta)==20561L,sum(meta$role=="non_targeting_control")==19342L)
   design <- read.csv(file.path(input,"guide_design.csv"),stringsAsFactors=FALSE)
   guide_ids <- sort(unique(meta$guide_id))
   targets <- sort(unique(meta$guide_id[meta$role %in% c("targeting","positive_control")]))
   stopifnot(length(guide_ids)==116L,length(targets)==10L,all(meta$guide_umis>=1))
-  g <- sparseMatrix(i=match(meta$guide_id,guide_ids),j=seq_len(nrow(meta)),x=meta$guide_umis,
-    dims=c(length(guide_ids),nrow(meta)),dimnames=list(guide_ids,meta$cell_barcode))
-  stage("official_pairwise_QC_and_frozen_assignments")
-  object <- configure_object(y,g,meta,targets)
-  saveRDS(object,file.path(output,"precalibration_object.rds"))
-  stage("official_NTC_calibration")
-  set.seed(10282021)
-  object <- run_calibration_check(object,n_calibration_pairs=5000L,calibration_group_size=1L,
-    parallel=TRUE,n_processors=2L,print_progress=TRUE,output_amount=2L)
+  if(is.null(checkpoint)) {
+    g <- sparseMatrix(i=match(meta$guide_id,guide_ids),j=seq_len(nrow(meta)),x=meta$guide_umis,
+      dims=c(length(guide_ids),nrow(meta)),dimnames=list(guide_ids,meta$cell_barcode))
+    stage("official_pairwise_QC_and_frozen_assignments")
+    object <- configure_object(y,g,meta,targets)
+    saveRDS(object,file.path(output,"precalibration_object.rds"))
+  }
+  if(!object@functs_called[["run_calibration_check"]]) {
+    stage("official_NTC_calibration")
+    set.seed(10282021)
+    object <- run_calibration_check(object,n_calibration_pairs=5000L,calibration_group_size=1L,
+      parallel=TRUE,n_processors=2L,print_progress=TRUE,output_amount=2L)
+    saveRDS(object,file.path(output,"postcalibration_object.rds"))
+  }
   calibration <- get_result(object,"run_calibration_check")
-  nt_guides <- unique(meta$guide_id[meta$role=="non_targeting_control"])
-  stopifnot(all(calibration$grna_target %in% nt_guides))
   write_gzip_csv(calibration,file.path(output,"NTC_calibration_tests.csv.gz"))
+  nt_guides <- unique(meta$guide_id[meta$role=="non_targeting_control"])
+  validate_calibration_controls(calibration,nt_guides)
   finite <- calibration$p_value[is.finite(calibration$p_value)]
   write.csv(data.frame(tests=nrow(calibration),finite_p=length(finite),
     fraction_p_below_05=mean(finite<0.05),fraction_p_below_01=mean(finite<0.01),
     BH_discoveries_at_10=sum(p.adjust(finite,"BH")<0.1)),
     file.path(output,"calibration_summary.csv"),row.names=FALSE)
-  stage("official_per_guide_whole_gene_discovery")
-  set.seed(10282021)
-  object <- run_discovery_analysis(object,parallel=TRUE,n_processors=2L,print_progress=TRUE,output_amount=2L)
+  if(!object@functs_called[["run_discovery_analysis"]]) {
+    stage("official_per_guide_whole_gene_discovery")
+    set.seed(10282021)
+    object <- run_discovery_analysis(object,parallel=TRUE,n_processors=2L,print_progress=TRUE,output_amount=2L)
+    saveRDS(object,file.path(output,"postdiscovery_object.rds"))
+  }
   result <- get_result(object,"run_discovery_analysis")
+  write_gzip_csv(result,file.path(output,"guide_RNA_tests.csv.gz"))
   guide_column <- if("grna_id" %in% colnames(result)) "grna_id" else "grna_target"
   stopifnot(all(result[[guide_column]] %in% targets))
-  write_gzip_csv(result,file.path(output,"guide_RNA_tests.csv.gz"))
   summaries <- lapply(targets,function(guide) {
     part <- result[result[[guide_column]]==guide,,drop=FALSE]
     measured <- is.finite(part$p_value)
@@ -110,6 +149,6 @@ args <- commandArgs(trailingOnly=TRUE)
 stopifnot(length(args)>=2L,args[[1]] %in% c("--self-test","--run"))
 source(args[[2]])
 if(args[[1]]=="--self-test") self_test() else {
-  stopifnot(length(args)==4L)
-  run(args[[3]],args[[4]])
+  stopifnot(length(args) %in% c(4L,5L))
+  run(args[[3]],args[[4]],if(length(args)==5L) args[[5]] else NULL)
 }
