@@ -114,5 +114,20 @@ def test_10x_adapter_reorders_cells_and_excludes_guide_counts(tmp_path):
     x,cells,genes,proof=m.load_counts(cfg,lambda *args,**kwargs:None)
     np.testing.assert_array_equal(x.toarray(),[[3,6,1],[1,4,0]])
     assert proof['whole_source_hash_verified'] and genes.gene_id.tolist()==['g1','g2','g3']
+    # A guide-free control is an explicit measurement category, never a rescue
+    # for an unknown guide or a nonzero, unassigned capture signal.
+    measured = pd.DataFrame(dict(cell_barcode=['c', 'a'], guide_id=['T', ''],
+        total_counts=[10, 5], role=['targeting', 'no_guide_detected'], raw_guide_umis=[2, 0]))
+    measured.to_csv(tmp_path/'cells.csv', index=False)
+    with pytest.raises(ValueError, match='Missing guide design annotation'):
+        m.load_counts(cfg, lambda *args, **kwargs: None)
+    cfg['allow_no_guide_records'] = True
+    x, cells, _, _ = m.load_counts(cfg, lambda *args, **kwargs: None)
+    np.testing.assert_array_equal(x.toarray(), [[3, 6, 1], [1, 4, 0]])
+    assert cells.role.tolist() == ['targeting', 'no_guide_detected']
+    measured.loc[1, 'raw_guide_umis'] = 1
+    measured.to_csv(tmp_path/'cells.csv', index=False)
+    with pytest.raises(ValueError, match='Missing guide design annotation'):
+        m.load_counts(cfg, lambda *args, **kwargs: None)
     cfg['source_sha256']='0'*64
     with pytest.raises(ValueError,match='SHA256 mismatch'):m.load_counts(cfg,lambda *args,**kwargs:None)

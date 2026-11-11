@@ -74,6 +74,8 @@ def load_counts(config, progress):
     source = Path(config['source'])
     before = identity(source)
     cells = pd.read_csv(config['cells'], dtype={'cell_barcode': str, 'guide_id': str})
+    if config.get('allow_no_guide_records', False):
+        cells['guide_id'] = cells.guide_id.fillna('')
     catalogue = pd.read_csv(config['catalogue'], keep_default_na=False)
     if not cells.cell_barcode.is_unique or not catalogue.guide.is_unique:
         raise ValueError('Ambiguous cell/catalogue identity')
@@ -157,10 +159,16 @@ def load_counts(config, progress):
     if len(cells) != config['expected_cells'] or x.shape[1] != config['expected_genes']:
         raise ValueError('Cohort shape differs')
     annotation = catalogue.set_index('guide').reindex(cells.guide_id)
-    if annotation.source_control_type.isna().any():
+    no_guide = np.zeros(len(cells), dtype=bool)
+    if config.get('allow_no_guide_records', False):
+        no_guide = (cells.guide_id.eq('') & cells.role.eq('no_guide_detected') &
+                    cells.raw_guide_umis.eq(0)).to_numpy()
+    if np.any(annotation.source_control_type.isna().to_numpy() & ~no_guide):
         raise ValueError('Missing guide design annotation')
     cells['target'] = annotation.target_gene_name.to_numpy()
     cells['role'] = annotation.source_control_type.to_numpy()
+    cells.loc[no_guide, 'target'] = 'NO_GUIDE_DETECTED'
+    cells.loc[no_guide, 'role'] = 'no_guide_detected'
     # Annotations supply design identity only, never legacy coverage/selection.
     proof.update(source=str(source), source_identity=before,
                  source_modified=False, cells=len(cells), genes=x.shape[1], nnz=x.nnz)
