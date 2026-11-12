@@ -35,6 +35,23 @@ validate_calibration_controls <- function(calibration,nt_guides) {
   invisible(TRUE)
 }
 
+validate_checkpoint_records <- function(object,meta) {
+  # import_data intentionally drops response-matrix column names. Verify the
+  # ordered RNA and guide measurements instead of expecting absent barcodes.
+  covariates <- object@covariate_data_frame
+  actual <- rep(NA_character_,nrow(meta))
+  for(guide in names(object@initial_grna_assignment_list)) {
+    actual[object@initial_grna_assignment_list[[guide]]] <- guide
+  }
+  stopifnot(ncol(sceptre:::get_response_matrix(object))==nrow(meta),
+    identical(as.numeric(covariates$response_n_umis),as.numeric(meta$total_counts)),
+    identical(as.numeric(covariates$grna_n_umis),as.numeric(meta$guide_umis)),
+    identical(actual,meta$guide_id),
+    identical(object@cells_in_use,seq_len(nrow(meta))),
+    setequal(object@grna_assignments$all_nt_idxs,which(meta$role=="non_targeting_control")))
+  invisible(TRUE)
+}
+
 self_test <- function() {
   set.seed(711)
   group <- c(rep("N1",20),rep("N2",20),rep("T1",16))
@@ -45,6 +62,8 @@ self_test <- function() {
   rownames(y) <- paste0("gene",seq_len(nrow(y)))
   colnames(y) <- meta$cell_barcode
   y[1,group=="T1"] <- 0
+  meta$total_counts <- Matrix::colSums(y)
+  meta$guide_umis <- 1
   g <- sparseMatrix(i=match(group,c("N1","N2","T1")),j=seq_along(group),x=1,
     dims=c(3,length(group)),dimnames=list(c("N1","N2","T1"),meta$cell_barcode))
   object <- configure_object(y,g,meta,"T1")
@@ -60,6 +79,9 @@ self_test <- function() {
   object <- readRDS(checkpoint)
   unlink(checkpoint)
   stopifnot(identical(as.data.frame(get_result(object,"run_calibration_check")),as.data.frame(calibration)))
+  validate_checkpoint_records(object,meta)
+  reversed <- meta[rev(seq_len(nrow(meta))),,drop=FALSE]
+  stopifnot(inherits(try(validate_checkpoint_records(object,reversed),silent=TRUE),"try-error"))
   object <- run_discovery_analysis(object,parallel=FALSE,n_processors=2L,print_progress=FALSE,output_amount=2L)
   result <- get_result(object,"run_discovery_analysis")
   stopifnot(nrow(result)>0L,all(result$grna_target=="T1"),
@@ -89,9 +111,7 @@ run <- function(input,output,checkpoint=NULL) {
     meta <- meta[meta$role=="non_targeting_control" |
       meta$target_gene_name %in% c("TYMSOS","UBA1"),,drop=FALSE]
     object <- readRDS(checkpoint)
-    stopifnot(identical(colnames(sceptre:::get_response_matrix(object)),meta$cell_barcode),
-      identical(object@cells_in_use,seq_len(nrow(meta))),
-      setequal(object@grna_assignments$all_nt_idxs,which(meta$role=="non_targeting_control")))
+    validate_checkpoint_records(object,meta)
   }
   stopifnot(nrow(meta)==20561L,sum(meta$role=="non_targeting_control")==19342L)
   design <- read.csv(file.path(input,"guide_design.csv"),stringsAsFactors=FALSE)
