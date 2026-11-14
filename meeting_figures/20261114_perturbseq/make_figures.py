@@ -174,15 +174,19 @@ def fig1(data):
     ax.spines[['top', 'right', 'left']].set_visible(False)
     ax.tick_params(axis='y', length=0, pad=10)
     ax.set_xlabel('Differentially expressed gene/ORF features')
-    fig.suptitle('1 · Conventional DEG pilot and NTC comparisons', fontsize=19, y=.965)
+    fig.suptitle('1 · Supplement: conventional DEG pilot and NTC groups', fontsize=19, y=.965)
     fig.text(.31, .875, 'Scanpy Wilcoxon · 1,719 HVGs · BH-adjusted P < 0.05', fontsize=13)
+    fig.legend(handles=[Line2D([], [], color=BLUE, lw=8, label='Target groups'),
+        Line2D([], [], color=GRAY, lw=8, label='NTC sgRNA groups')],
+        loc='upper left', bbox_to_anchor=(.305, .84), ncol=2, fontsize=11.5,
+        handlelength=1.2, columnspacing=2)
     fig.text(.31, .065, 'Reference: 16,952 NTC records; the six displayed NTC guides were excluded from this reference.', fontsize=11)
     return save(fig, 'Fig1_conventional_DEG_NTC', {'groups': order, 'DEG_counts': table.nominal_bh05.tolist(),
                 'records': table.cells.tolist(), 'reference_records': 16952, 'tested_HVGs': 1719})
 
 
 def qtext(value):
-    return f'{value:.2g}' if value >= .001 else f'{value:.1e}'
+    return f'{value:.3g}' if value >= .001 else f'{value:.2e}'
 
 
 def fig2(data):
@@ -229,14 +233,14 @@ def fig2(data):
     cax = fig.add_axes([.93, .245, .014, .49])
     colorbar = fig.colorbar(image, cax=cax)
     colorbar.solids.set_rasterized(False)
-    colorbar.ax.set_title('log₂FC', fontsize=11.5, pad=10)
+    colorbar.ax.set_title('log2FC', fontsize=11.5, pad=10)
     colorbar.ax.tick_params(labelsize=11)
     fig.suptitle('2 · SCEPTRE differential expression', fontsize=19, y=.965)
     fig.text(.19, .90, 'Per-sgRNA comparisons with NTC · BH FDR < 0.1', fontsize=13)
     fig.text(.19, .845, 'All five sgRNAs retained per target', fontsize=12.5)
     fig.text(.645, .845, 'TYMSOS · repeated significant genes', fontsize=12.5)
     fig.text(.19, .095, 'NTC: 19,342 records. BH correction covers 273,040 valid guide–feature tests.', fontsize=11)
-    fig.text(.19, .052, 'Heatmap: saved log₂FC; outlined cells show BH q < 0.1. n.s.: not significant at this threshold.', fontsize=11)
+    fig.text(.19, .052, 'Heatmap: saved log2FC; outlined cells show BH q < 0.1. n.s.: not significant at this threshold.', fontsize=11)
     return save(fig, 'Fig2_SCEPTRE_counts_repeated_genes', {'guide_order': order, 'DEG_counts': table.DE_RNAs.tolist(),
         'heatmap_genes': genes, 'heatmap_log2FC': matrix.tolist(), 'significant_heatmap_cells': 4})
 
@@ -273,7 +277,7 @@ def fig3(data):
     arrow(ax, (.74, .425), (.74, .39))
     box(ax, (.545, .28, .39, .11), 'Original min.de.genes = 5: not scored\nLowered to 1: overall score available', fontsize=12.5)
     arrow(ax, (.74, .28), (.74, .245))
-    box(ax, (.545, .13, .39, .115), 'Exploratory single-gene score\nShared PCA + 20-nearest-NTC background', fontsize=12.5)
+    box(ax, (.545, .13, .39, .115), 'Exploratory single-gene score\n10 shared PCs + 20-nearest-NTC background\nPCA fit: 81,201 input records', fontsize=11.5)
     ax.text(.06, .055, 'The minimum DEG count controls entry to scoring; it is not a measure of overall experiment quality.', fontsize=11.5)
     return save(fig, 'Fig3_Mixscale_scoring_limits', {'independent_routes': True,
         'available_genes_per_target': 1, 'original_minimum': 5, 'exploratory_minimum': 1})
@@ -389,7 +393,7 @@ def supplement(data):
     rows = []
     for row in data['sig'].itertuples():
         rows.append([row.grna_id, row.gene_name, f'{row.log_2_fold_change:+.3f}', f'{row.BH_FDR_check:.3g}'])
-    table = ax.table(cellText=rows, colLabels=['sgRNA', 'Gene / ORF feature', 'log₂FC', 'BH-adjusted P'],
+    table = ax.table(cellText=rows, colLabels=['sgRNA', 'Gene / ORF feature', 'log2FC', 'BH-adjusted P'],
         colWidths=[.16, .54, .12, .18], cellLoc='left', colLoc='left', bbox=[0, 0, 1, 1])
     table.auto_set_font_size(False);table.set_fontsize(11.3)
     for (i, j), cell in table.get_celld().items():
@@ -401,7 +405,7 @@ def supplement(data):
             cell.get_text().set_color(BLUE if data['sig'].iloc[i - 1].log_2_fold_change > 0 else DOWN)
     fig.suptitle('Supplement · All 15 significant SCEPTRE associations', fontsize=19, y=.965)
     fig.text(.04, .905, 'BH FDR < 0.1 across 273,040 valid guide–feature tests; all feature identifiers are retained.', fontsize=12)
-    fig.text(.04, .065, 'Positive log₂FC: increased expression; negative: decreased expression. Full raw P and detection counts are in the CSV.', fontsize=11.3)
+    fig.text(.04, .065, 'Positive log2FC: increased expression; negative: decreased expression. Full raw P and detection counts are in the CSV.', fontsize=11.3)
     return save(fig, 'S1_SCEPTRE_all15', {'rows': len(rows)})
 
 
